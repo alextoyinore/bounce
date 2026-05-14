@@ -464,7 +464,7 @@ function init() {
           const gainValue = (pct / 100) * 1.5
           tracks[trackName].setVolume(gainValue)
           engine.updateTrackVolumes()
-          faderEl.style.bottom = `\${pct}%`
+          faderEl.style.bottom = `${pct}%`
           const db = gainValue <= 0 ? -Infinity : 20 * Math.log10(gainValue)
           dbLabel.textContent = db === -Infinity ? '-inf' : db.toFixed(1)
         })
@@ -477,7 +477,7 @@ function init() {
             const rect = faderTrackEl.getBoundingClientRect()
             let percentage = ((rect.bottom - moveEvent.clientY) / rect.height) * 100
             percentage = Math.max(0, Math.min(100, percentage))
-            faderEl.style.bottom = `\${percentage}%`
+            faderEl.style.bottom = `${percentage}%`
             const gainValue = (percentage / 100) * 1.5
             const db = percentage === 0 ? -Infinity : 20 * Math.log10(gainValue)
             dbLabel.textContent = db === -Infinity ? '-inf' : db.toFixed(1)
@@ -496,7 +496,7 @@ function init() {
         const newName = nameEl.textContent
         nameElM.textContent = newName
         seqRow.querySelector('.seq-label').textContent = newName
-        const opt = document.querySelector(`#pr-track-select option[value="\${trackId}"]`)
+        const opt = document.querySelector(`#pr-track-select option[value="${trackId}"]`)
         if (opt) opt.textContent = newName
       })
       nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); nameEl.blur() } })
@@ -540,8 +540,8 @@ function init() {
     let customTrackCounter = 1
     if (addTrackBtn) {
       addTrackBtn.addEventListener('click', () => {
-        const trackId = `track_\${customTrackCounter}`
-        const trackName = `Track \${customTrackCounter + 3}`
+        const trackId = `track_${customTrackCounter}`
+        const trackName = `Track ${customTrackCounter + 3}`
         const defaultColor = '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
         createTrackUI(trackId, trackName, defaultColor)
         customTrackCounter++
@@ -562,7 +562,7 @@ function init() {
             const rect = trackElement.getBoundingClientRect()
             let percentage = ((rect.bottom - moveEvent.clientY) / rect.height) * 100
             percentage = Math.max(0, Math.min(100, percentage))
-            fader.style.bottom = `\${percentage}%`
+            fader.style.bottom = `${percentage}%`
             const gainValue = (percentage / 100) * 1.5
             const dbLabel = masterChannel.querySelector('.channel-db')
             if (dbLabel) {
@@ -638,7 +638,7 @@ function init() {
           const windowHeight = window.innerHeight
           let newHeight = windowHeight - moveEvent.clientY
           newHeight = Math.max(100, Math.min(newHeight, windowHeight - 200))
-          appContainer.style.setProperty('--dynamic-footer-height', `\${newHeight}px`)
+          appContainer.style.setProperty('--dynamic-footer-height', `${newHeight}px`)
         }
         
         const onMouseUp = () => {
