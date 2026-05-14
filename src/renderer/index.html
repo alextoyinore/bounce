@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bounce DAW</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:"
+    />
+    <link href="./assets/main.css" type="text/css" rel="stylesheet" />
+  </head>
+
+  <body>
+    <div id="app">
+      <header>
+        <div class="logo-area">
+          <div class="logo-text">BOUNCE</div>
+          <div class="menu-items">
+            <div class="menu-item-container">
+              <span class="menu-label">File</span>
+              <div class="dropdown-menu">
+                <div class="dropdown-item">New Project</div>
+                <div class="dropdown-item">Open Project...</div>
+                <div class="dropdown-item">Save</div>
+                <div class="dropdown-divider"></div>
+                <div class="dropdown-item" id="menu-exit">Exit</div>
+              </div>
+            </div>
+            <div class="menu-item-container">
+              <span class="menu-label">Edit</span>
+              <div class="dropdown-menu">
+                <div class="dropdown-item">Undo</div>
+                <div class="dropdown-item">Redo</div>
+                <div class="dropdown-divider"></div>
+                <div class="dropdown-item">Cut</div>
+                <div class="dropdown-item">Copy</div>
+                <div class="dropdown-item">Paste</div>
+              </div>
+            </div>
+            <div class="menu-item-container">
+              <span class="menu-label">View</span>
+              <div class="dropdown-menu">
+                <div class="dropdown-item">Toggle Browser</div>
+                <div class="dropdown-item">Toggle Mixer</div>
+              </div>
+            </div>
+            <div class="menu-item-container">
+              <span class="menu-label">Options</span>
+              <div class="dropdown-menu">
+                <div class="dropdown-item">Audio Settings...</div>
+                <div class="dropdown-item">MIDI Settings...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="transport-controls">
+          <button class="transport-btn skip-back"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M200,40a8,8,0,0,0-8,8v67.89l-111.4-69.54A16,16,0,0,0,56,60v136a16,16,0,0,0,24.6,13.65L192,140.11V208a8,8,0,0,0,16,0V48A8,8,0,0,0,200,40ZM72,196V60l108.8,68Z"></path></svg></button>
+          <button class="transport-btn stop"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M208,40H48A16,16,0,0,0,32,56V200a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V56A16,16,0,0,0,208,40Zm0,160H48V56H208V200Z"></path></svg></button>
+          <button class="transport-btn play"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M232.4,114.49,88.32,26.35a16,16,0,0,0-24.32,13.65v176a16,16,0,0,0,24.32,13.65l144.08-88.14A16,16,0,0,0,232.4,114.49ZM80,216V40l144,88Z"></path></svg></button>
+          <button class="transport-btn record"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"></path></svg></button>
+          <button class="transport-btn"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H192v24a64.07,64.07,0,0,1-64,64H64v16a8,8,0,0,1-13.66,5.66l-32-32a8,8,0,0,1,0-11.32l32-32A8,8,0,0,1,64,176v16h64a48.05,48.05,0,0,0,48-48V120a8,8,0,0,1,8-8h24A8,8,0,0,1,224,128ZM192,64V48a8,8,0,0,0-13.66-5.66l-32,32a8,8,0,0,0,0,11.32l32,32A8,8,0,0,0,192,80V64h-8a64.07,64.07,0,0,0-64,64,8,8,0,0,0,16,0,48.05,48.05,0,0,1,48-48Z"></path></svg></button>
+        </div>
+
+        <div class="lcd-display">
+          <div class="lcd-section">
+            <div class="lcd-label">BPM</div>
+            <div class="lcd-value lcd-editable" id="bpm-display" title="Click to edit">120.0</div>
+          </div>
+          <div class="lcd-section">
+            <div class="lcd-label">TIME</div>
+            <div class="lcd-value lcd-editable" id="time-sig-display" title="Click to edit">4/4</div>
+          </div>
+          <div class="lcd-section time-display">
+            <div class="lcd-label">POSITION</div>
+            <div class="lcd-value">013 : 02 : 00</div>
+          </div>
+        </div>
+        
+        <div class="grid-snap-control" style="-webkit-app-region: no-drag; display: flex; align-items: center; gap: 8px; margin-left: 16px;">
+          <label style="font-size: 0.7rem; color: var(--text-secondary); font-weight: 600;">SNAP</label>
+          <select id="grid-snap-select" class="btn" style="padding: 4px 8px; background: var(--bg-color);">
+            <option value="1">1 Bar</option>
+            <option value="0.5">1/2</option>
+            <option value="0.25">1/4</option>
+            <option value="0.125">1/8</option>
+            <option value="0.0625" selected>1/16</option>
+            <option value="0.03125">1/32</option>
+            <option value="0">Off</option>
+          </select>
+        </div>
+        <div class="header-right">
+          <button class="btn btn-primary" style="-webkit-app-region: no-drag;">Export</button>
+          <div class="window-controls">
+            <button class="win-btn" id="min-btn"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128Z"></path></svg></button>
+            <button class="win-btn" id="max-btn"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M208,40H48A8,8,0,0,0,40,48V208a8,8,0,0,0,8,8H208a8,8,0,0,0,8-8V48A8,8,0,0,0,208,40Zm-8,160H56V56H200Z"></path></svg></button>
+            <button class="win-btn close" id="close-btn"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"></path></svg></button>
+          </div>
+        </div>
+      </header>
+
+      <aside>
+        <div class="browser-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+          <div class="panel-title" style="display: flex; align-items: center; gap: 6px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="var(--text-secondary)" viewBox="0 0 256 256"><path d="M216,72H130.67L102.93,51.2a16.12,16.12,0,0,0-9.6-3.2H40A16,16,0,0,0,24,64V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V88A16,16,0,0,0,216,72Zm0,128H40V64H93.33l27.74,20.8a16.12,16.12,0,0,0,9.6,3.2H216Z"></path></svg>
+            Browser
+          </div>
+          <button class="c-btn" id="open-folder-btn" title="Open Folder" style="background: transparent; border: none; padding: 0; width: 24px; height: 24px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"></path></svg>
+          </button>
+        </div>
+        <div class="browser-list-container" style="flex-grow: 1; overflow-y: auto; margin-top: 8px;">
+          <ul class="browser-list" id="sample-list">
+            <li class="browser-item empty-state" style="justify-content: center; opacity: 0.5; padding-top: 20px;">No folder selected</li>
+          </ul>
+        </div>
+      </aside>
+
+      <main>
+        <div class="sequencer-container">
+          <div class="track-headers">
+            <div class="timeline-corner" style="display: flex; justify-content: space-between; align-items: center; padding: 0 12px; box-sizing: border-box;">
+              <span style="font-size: 0.7rem; color: var(--text-secondary); font-weight: 600;">TRACKS</span>
+              <button id="add-track-btn" class="c-btn" title="Add Track" style="width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; font-size: 1rem; line-height: 1;">+</button>
+            </div>
+            <div id="track-headers-container"></div>
+          </div>
+
+          <div class="arrangement-view">
+            <div class="timeline-ruler">
+              <!-- Dynamically generated -->
+            </div>
+            <div class="grid-container">
+              <div class="playhead" style="left: 25%"></div>
+              <div id="track-lanes-container"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <div id="footer-resizer"></div>
+
+      <footer id="main-footer">
+        <div class="footer-topbar">
+          <button class="btn btn-primary toggle-view" data-target="mixer-view">Mixer</button>
+          <button class="btn toggle-view" data-target="piano-roll-view">Piano Roll</button>
+          <button class="btn toggle-view" data-target="step-sequencer-view">Step Seq</button>
+          <button class="footer-collapse-btn" id="footer-collapse-btn" title="Collapse panel">
+            <svg id="collapse-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"></path></svg>
+          </button>
+        </div>
+
+        <div id="mixer-view" class="footer-panel active">
+          <!-- Master Channel -->
+          <div class="mixer-channel master">
+            <div class="channel-name">Master</div>
+            <div class="channel-inserts"></div>
+            <div class="channel-controls">
+              <button class="c-btn m-btn">M</button>
+              <div class="pan-knob"><div class="knob-indicator"></div></div>
+            </div>
+            <div class="fader-section">
+              <div class="fader-track"><div class="fader-handle" style="bottom: 70%;"></div></div>
+              <div class="peak-meter">
+                <div class="meter-level" style="height: 65%;"></div>
+              </div>
+            </div>
+            <div class="channel-db">0.0</div>
+          </div>
+          <div id="mixer-channels-container" style="display:flex; gap:8px;"></div>
+        </div>
+        
+        <div id="piano-roll-view" class="footer-panel editor-panel" style="flex-direction: column;">
+          <div class="pr-toolbar" style="display:flex; align-items:center; padding: 4px 12px; background: var(--surface-hover); border-bottom: 1px solid var(--border-color); width: 100%; flex-shrink: 0;">
+            <span style="font-size: 0.7rem; color: var(--text-secondary); margin-right: 8px;">Target Track:</span>
+            <select id="pr-track-select" class="btn" style="padding: 2px 6px; font-size: 0.7rem;">
+            </select>
+          </div>
+          <div style="display: flex; flex-grow: 1; overflow: hidden;">
+            <div class="piano-keys" id="piano-keys"></div>
+            <div class="piano-grid" id="piano-grid"></div>
+          </div>
+        </div>
+        
+        <div id="step-sequencer-view" class="footer-panel editor-panel">
+          <div class="seq-controls-row">
+            <span class="seq-controls-label">Steps</span>
+            <select id="step-count-select" class="btn" style="padding:2px 6px; font-size:0.7rem;">
+              <option value="8">8</option>
+              <option value="16" selected>16</option>
+              <option value="32">32</option>
+              <option value="64">64</option>
+            </select>
+          </div>
+          <div id="seq-rows-container"></div>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="./src/renderer.js"></script>
+  </body>
+</html>
