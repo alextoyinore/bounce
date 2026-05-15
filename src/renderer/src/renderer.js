@@ -1,4 +1,4 @@
-import { engine } from './AudioEngine.js'
+import { engine, parseNoteToMidi } from './AudioEngine.js'
 import { sequencer } from './Sequencer.js'
 
 function init() {
@@ -53,6 +53,7 @@ function init() {
     // Transport Controls
     const playBtn = document.querySelector('.transport-btn.play')
     const stopBtn = document.querySelector('.transport-btn.stop')
+    const loopBtn = document.getElementById('loop-toggle-btn')
     const skipBackBtn = document.querySelector('.transport-btn.skip-back')
 
     const playSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M232.4,114.49,88.32,26.35a16,16,0,0,0-24.32,13.65v176a16,16,0,0,0,24.32,13.65l144.08-88.14A16,16,0,0,0,232.4,114.49ZM80,216V40l144,88Z"></path></svg>'
@@ -74,6 +75,11 @@ function init() {
       playBtn.innerHTML = playSvg
     })
 
+    loopBtn?.addEventListener('click', () => {
+      sequencer.loopEnabled = !sequencer.loopEnabled
+      loopBtn.classList.toggle('active', sequencer.loopEnabled)
+    })
+
     skipBackBtn?.addEventListener('click', () => {
       sequencer.stop()
       playBtn.innerHTML = playSvg
@@ -81,63 +87,147 @@ function init() {
 
     // Browser Logic
     const openFolderBtn = document.getElementById('open-folder-btn')
-    const sampleList = document.getElementById('sample-list')
+    const browserContainer = document.getElementById('browser-container')
     
-    const renderBrowserList = (files) => {
-      sampleList.innerHTML = ''
-      if (!files || files.length === 0) {
-        sampleList.innerHTML = '<li class="browser-item empty-state" style="justify-content: center; opacity: 0.5; padding-top: 20px;">No audio files found</li>'
-        return
+    const removeSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 256 256"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"></path></svg>'
+    
+    async function buildBrowserTree(parentEl, folderName, dirPath, isRemovable = true) {
+      const folderItem = document.createElement('div')
+      folderItem.className = 'browser-accordion'
+      
+      const header = document.createElement('div')
+      header.className = 'folder-header collapsed'
+      header.innerHTML = `
+        <div style="display:flex; align-items:center; gap:8px; flex-grow:1;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 256 256" style="transition: transform 0.2s;"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"></path></svg> 
+          <span>${folderName}</span>
+        </div>
+        ${isRemovable ? `<button class="folder-remove-btn" title="Remove Folder">${removeSvg}</button>` : ''}
+      `
+      
+      const content = document.createElement('ul')
+      content.className = 'folder-content collapsed'
+      content.style.paddingLeft = '12px'
+      
+      let loaded = false;
+      
+      if (isRemovable) {
+        header.querySelector('.folder-remove-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          folderItem.remove();
+        });
       }
-      const removeSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 256 256"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"></path></svg>'
-      files.forEach(file => {
-        const li = document.createElement('li')
-        li.className = 'browser-item'
-        li.draggable = true
-        li.innerHTML = `
-          ${fileSvg}
-          <span class="browser-item-name">${file.name}</span>
-          <button class="browser-item-remove" title="Remove from list">${removeSvg}</button>
-        `
-        li.querySelector('.browser-item-remove').addEventListener('click', (e) => {
-          e.stopPropagation()
-          li.remove()
-        })
-        li.addEventListener('dragstart', (e) => {
-          e.dataTransfer.setData('text/plain', JSON.stringify(file))
-          e.dataTransfer.effectAllowed = 'copy'
-        })
-        sampleList.appendChild(li)
+      
+      header.addEventListener('click', async (e) => {
+        if (e.target.closest('.folder-remove-btn')) return;
+        
+        header.classList.toggle('collapsed')
+        content.classList.toggle('collapsed')
+        
+        if (!loaded) {
+          loaded = true;
+          console.log('[Renderer] Loading directory:', dirPath);
+          const entries = await window.api.readDirectory(dirPath);
+          console.log('[Renderer] Entries received:', entries);
+          
+          if (!entries || entries.length === 0) {
+            content.innerHTML = '<li class="browser-item empty-state" style="justify-content: center; opacity: 0.5;">Empty</li>'
+          } else {
+            // Sort: directories first, then files
+            entries.sort((a, b) => {
+              if (a.type === b.type) return a.name.localeCompare(b.name);
+              return a.type === 'directory' ? -1 : 1;
+            });
+            
+            for (const entry of entries) {
+              if (entry.type === 'directory') {
+                await buildBrowserTree(content, entry.name, entry.path, isRemovable)
+              } else if (entry.type === 'file') {
+                const li = document.createElement('li')
+                li.className = 'browser-item'
+                li.draggable = true
+                li.innerHTML = `
+                  ${fileSvg}
+                  <span class="browser-item-name">${entry.name}</span>
+                  <button class="browser-item-remove" title="Remove from list">${removeSvg}</button>
+                `
+                li.querySelector('.browser-item-remove').addEventListener('click', (e) => {
+                  e.stopPropagation()
+                  li.remove()
+                })
+                li.addEventListener('dragstart', (e) => {
+                  e.dataTransfer.setData('text/plain', JSON.stringify(entry))
+                  e.dataTransfer.effectAllowed = 'copy'
+                })
+                li.addEventListener('click', async () => {
+                  try {
+                    const buffer = await window.api.readFile(entry.path)
+                    if (buffer) {
+                      const audioBuffer = await engine.decodeAudioData(buffer.buffer)
+                      engine.playPreview(audioBuffer)
+                    }
+                  } catch(e) { console.error('Preview error', e) }
+                })
+                content.appendChild(li)
+              }
+            }
+          }
+        }
       })
+      
+      folderItem.appendChild(header)
+      folderItem.appendChild(content)
+      parentEl.appendChild(folderItem)
     }
 
     if (openFolderBtn) {
       openFolderBtn.addEventListener('click', async () => {
         const folderPath = await window.api.openFolder()
         if (folderPath) {
-          const files = await window.api.readDirectory(folderPath)
-          renderBrowserList(files)
+          const folderName = folderPath.split(/[/\\]/).pop() || 'New Folder'
+          buildBrowserTree(browserContainer, folderName, folderPath)
         }
       })
     }
 
+    function updateArrangerGrid() {
+      const beatsPerBar = sequencer.timeSignature?.numerator || 4;
+      const secondsPerBeat = 60 / sequencer.bpm;
+      const beatWidth = secondsPerBeat * sequencer.pxPerSecond;
+      const barWidth = beatWidth * beatsPerBar;
+      
+      const arranger = document.querySelector('.arrangement-view');
+      if (arranger) {
+        arranger.style.setProperty('--beat-width', `${beatWidth}px`);
+        arranger.style.setProperty('--bar-width', `${barWidth}px`);
+      }
+    }
+
+    // Call it initially and on BPM changes
+    updateArrangerGrid();
+    
+    // Add to BPM display observer or listener
+    document.getElementById('bpm-display')?.addEventListener('blur', () => {
+       setTimeout(updateArrangerGrid, 100);
+    });
+
     // Auto-load default samples
-    setTimeout(async () => {
+    setTimeout(() => {
       try {
         const defaultPath = window.location.href.includes('index.html') 
           ? window.location.pathname.replace('index.html', 'assets/audio')
           : '/home/lexxy/Documents/projects/bounce/src/renderer/assets/audio'
-        const files = await window.api.readDirectory(defaultPath)
-        if (files && files.length > 0) renderBrowserList(files)
+        
+        buildBrowserTree(browserContainer, 'Starter Pack', `${defaultPath}/Starter Pack`, false)
       } catch (e) { console.warn("Could not auto-load samples", e) }
     }, 500)
 
-    // Grid Snap
     const gridSnapSelect = document.getElementById('grid-snap-select')
     if (gridSnapSelect) {
       gridSnapSelect.addEventListener('change', (e) => {
-        sequencer.setGridSnap(parseFloat(e.target.value))
+        sequencer.gridSnapInBeats = eval(e.target.value) * 4
         drawTimeline()
+        if (typeof drawPianoRollTimeline === 'function') drawPianoRollTimeline()
       })
     }
 
@@ -145,17 +235,17 @@ function init() {
       const ruler = document.querySelector('.timeline-ruler')
       const view = document.querySelector('.arrangement-view')
       if (!ruler || !view) return
+      
+      updateArrangerGrid()
 
       const beatsPerSecond = sequencer.bpm / 60
-      const snapBeats = sequencer.gridSnapInBeats > 0 ? sequencer.gridSnapInBeats : 1
-      const snapSeconds = snapBeats / beatsPerSecond
-      const snapPixels = snapSeconds * sequencer.pxPerSecond
-
+      const beatsPerBar = sequencer.timeSignature?.numerator || 4
+      
       // Set complex grid background on grid-container
       const gridContainer = document.querySelector('.grid-container')
       if (gridContainer) {
         const beatPixels = (1 / beatsPerSecond) * sequencer.pxPerSecond
-        const barPixels = 4 * beatPixels
+        const barPixels = beatsPerBar * beatPixels
         const sixteenthPixels = beatPixels / 4
         
         gridContainer.style.backgroundImage = `
@@ -165,22 +255,67 @@ function init() {
         `
       }
 
-      const barSeconds = 4 / beatsPerSecond
-      const barPixels = barSeconds * sequencer.pxPerSecond
+      const beatPixels = (1 / beatsPerSecond) * sequencer.pxPerSecond
+      const barPixels = beatsPerBar * beatPixels
       
-      ruler.innerHTML = ''
+      ruler.innerHTML = `
+        <div class="ruler-bars"></div>
+        <div class="ruler-beats"></div>
+      `
+      
+      const barsContainer = ruler.querySelector('.ruler-bars')
+      const beatsContainer = ruler.querySelector('.ruler-beats')
+      
       const numBars = Math.ceil(5000 / barPixels) // Arbitrary long timeline
       
       for(let i = 0; i < numBars; i++) {
         const span = document.createElement('span')
         span.textContent = i + 1
         span.style.width = `${barPixels}px`
-        ruler.appendChild(span)
+        barsContainer.appendChild(span)
+        
+        for(let j = 0; j < beatsPerBar; j++) {
+          const beatSpan = document.createElement('span')
+          beatSpan.textContent = j === 0 ? '' : (j + 1)
+          beatSpan.style.width = `${beatPixels}px`
+          if (j !== 0) beatSpan.style.borderLeft = '1px solid rgba(255,255,255,0.1)'
+          beatsContainer.appendChild(beatSpan)
+        }
       }
+    }
+
+    // Timeline Scrubbing Logic
+    const timelineRuler = document.querySelector('.timeline-ruler')
+    if (timelineRuler) {
+      let isScrubbing = false
+      
+      const handleScrub = (e) => {
+        const arrangementView = document.querySelector('.arrangement-view')
+        const rect = timelineRuler.getBoundingClientRect()
+        const x = Math.max(0, e.clientX - rect.left + arrangementView.scrollLeft)
+        const timeInSeconds = x / sequencer.pxPerSecond
+        sequencer.seek(timeInSeconds)
+      }
+      
+      timelineRuler.addEventListener('mousedown', (e) => {
+        isScrubbing = true
+        handleScrub(e)
+      })
+      
+      document.addEventListener('mousemove', (e) => {
+        if (isScrubbing) handleScrub(e)
+      })
+      
+      document.addEventListener('mouseup', () => {
+        isScrubbing = false
+      })
     }
 
     // Drop Zone & Arrangement Logic
     const arrangementView = document.querySelector('.arrangement-view')
+    if (!arrangementView) {
+      console.error('Arrangement view not found!')
+    }
     if (arrangementView) {
       // Zoom
       arrangementView.addEventListener('wheel', (e) => {
@@ -221,10 +356,7 @@ function init() {
             
             const trackLane = e.target.closest('.track-lane') || document.querySelector('.track-lane')
             if (trackLane) {
-              const lanes = Array.from(document.querySelectorAll('.track-lane'))
-              const laneIndex = lanes.indexOf(trackLane)
-              const trackNames = ['drums', 'bass', 'synth']
-              const trackId = trackNames[Math.min(laneIndex, trackNames.length - 1)]
+              const trackId = trackLane.dataset.trackId || 'drums'
 
               // Fix: compute drop X relative to the grid-container, accounting for scroll
               const gridContainer = document.querySelector('.grid-container')
@@ -247,13 +379,25 @@ function init() {
               clip.className = 'clip audio-clip'
               clip.style.left = `${snappedX}px`
               clip.style.width = `${Math.max(20, musicalDuration * sequencer.pxPerSecond)}px`
+              
+              const map = trackUIMap[trackId]
+              if (map && map.headers[0]) {
+                const color = map.headers[0].laneEl.style.getPropertyValue('--track-color')
+                if (color) clip.style.background = color
+              }
+              
               clip.textContent = fileInfo.name
               clip.dataset.startTime = timeInSeconds
               clip.dataset.duration = musicalDuration
+              
+              const handle = document.createElement('div')
+              handle.className = 'resize-handle'
+              clip.appendChild(handle)
+              
               trackLane.appendChild(clip)
               
               // Auto-rename track if the track name isn't customized yet
-              const trackHeader = document.querySelectorAll('.track-header')[laneIndex]
+              const trackHeader = map ? map.headers[0].headerEl : null
               if (trackHeader) {
                 const nameEl = trackHeader.querySelector('.track-name')
                 if (nameEl) {
@@ -281,62 +425,107 @@ function init() {
         }
       })
 
-      // Clip Dragging
-      let draggingClip = null;
-      let dragStartX = 0;
-      let clipStartLeft = 0;
+      // Clip Dragging & Resizing
+      let clipDragState = null;
 
       arrangementView.addEventListener('mousedown', (e) => {
+        // Resize handle
+        if (e.target.classList.contains('resize-handle')) {
+          e.preventDefault()
+          e.stopPropagation()
+          const clip = e.target.closest('.clip')
+          clipDragState = {
+            type: e.shiftKey ? 'paint' : 'resize',
+            clip: clip,
+            startX: e.clientX,
+            startDur: parseFloat(clip.dataset.duration)
+          }
+          return;
+        }
+        
         const clip = e.target.closest('.clip');
         if (clip) {
-          draggingClip = clip;
-          dragStartX = e.clientX;
-          clipStartLeft = parseFloat(clip.style.left) || 0;
-          clip.classList.add('dragging');
+          e.preventDefault()
+          if (e.ctrlKey || e.metaKey) {
+            const clone = clip.cloneNode(true)
+            clip.parentElement.appendChild(clone)
+            
+            // Add sequence clone
+            const oldSeqClip = sequencer.clips.find(c => c.uiElement === clip)
+            if (oldSeqClip) {
+              const newSeqClip = { ...oldSeqClip, uiElement: clone, scheduled: false }
+              sequencer.addClip(newSeqClip)
+              clipDragState = { type: 'move', clip: clone, originalSeqClip: newSeqClip, startX: e.clientX, startLeft: parseFloat(clip.style.left) || 0 };
+            } else {
+              clipDragState = { type: 'move', clip: clone, startX: e.clientX, startLeft: parseFloat(clip.style.left) || 0 };
+            }
+            clone.classList.add('dragging');
+          } else {
+            clipDragState = { type: 'move', clip: clip, startX: e.clientX, startLeft: parseFloat(clip.style.left) || 0 };
+            clip.classList.add('dragging');
+          }
         }
       });
 
       document.addEventListener('mousemove', (e) => {
-        if (draggingClip) {
-          const deltaX = e.clientX - dragStartX;
-          let newLeft = Math.max(0, clipStartLeft + deltaX);
+        if (!clipDragState) return;
+        
+        if (clipDragState.type === 'resize' || clipDragState.type === 'paint') {
+          const deltaX = e.clientX - clipDragState.startX;
+          const newDur = Math.max(0.1, clipDragState.startDur + deltaX / sequencer.pxPerSecond);
+          clipDragState.clip.style.width = `${Math.max(10, newDur * sequencer.pxPerSecond)}px`;
+          clipDragState.clip.dataset.duration = newDur;
+          
+          const seqClip = sequencer.clips.find(c => c.uiElement === clipDragState.clip);
+          if (seqClip) {
+            seqClip.duration = newDur;
+            seqClip.scheduled = false;
+          }
+        } else if (clipDragState.type === 'move') {
+          const deltaX = e.clientX - clipDragState.startX;
+          let newLeft = Math.max(0, clipDragState.startLeft + deltaX);
           
           const timeInSeconds = newLeft / sequencer.pxPerSecond;
           const snappedTime = sequencer.snapTimeToGrid(timeInSeconds);
           newLeft = snappedTime * sequencer.pxPerSecond;
           
-          draggingClip.style.left = `${newLeft}px`;
+          clipDragState.clip.style.left = `${newLeft}px`;
+          
+          // Hover over different lane
+          const elementsUnder = document.elementsFromPoint(e.clientX, e.clientY);
+          const lane = elementsUnder.find(el => el.classList.contains('track-lane'));
+          if (lane && lane !== clipDragState.clip.parentElement) {
+            lane.appendChild(clipDragState.clip);
+            const map = trackUIMap[lane.dataset.trackId];
+            if (map && map.headers[0]) {
+               const color = map.headers[0].laneEl.style.getPropertyValue('--track-color')
+               if (color) clipDragState.clip.style.background = color
+            }
+          }
         }
       });
 
       document.addEventListener('mouseup', (e) => {
-        if (draggingClip) {
-          draggingClip.classList.remove('dragging');
+        if (clipDragState) {
+          clipDragState.clip.classList.remove('dragging');
           
-          const newLeft = parseFloat(draggingClip.style.left) || 0;
-          const newStartTime = newLeft / sequencer.pxPerSecond;
-          draggingClip.dataset.startTime = newStartTime;
-          
-          const seqClip = sequencer.clips.find(c => c.uiElement === draggingClip);
-          if (seqClip) {
-            seqClip.startTime = newStartTime;
-            seqClip.scheduled = false; // reschedule
-          }
-          
-          const lane = document.elementFromPoint(e.clientX, e.clientY)?.closest('.track-lane');
-          if (lane && lane !== draggingClip.parentElement) {
-            lane.appendChild(draggingClip);
-            const lanes = Array.from(document.querySelectorAll('.track-lane'));
-            const laneIndex = lanes.indexOf(lane);
-            const trackNames = ['drums', 'bass', 'synth'];
-            const newTrackId = trackNames[Math.min(laneIndex, trackNames.length - 1)];
+          if (clipDragState.type === 'move') {
+            const newLeft = parseFloat(clipDragState.clip.style.left) || 0;
+            const newStartTime = newLeft / sequencer.pxPerSecond;
+            clipDragState.clip.dataset.startTime = newStartTime;
             
+            const seqClip = sequencer.clips.find(c => c.uiElement === clipDragState.clip);
             if (seqClip) {
-              seqClip.trackId = newTrackId;
+              seqClip.startTime = newStartTime;
+              const parentLane = clipDragState.clip.parentElement;
+              if (parentLane) {
+                seqClip.trackId = parentLane.dataset.trackId;
+              }
+              seqClip.scheduled = false;
             }
           }
           
-          draggingClip = null;
+          clipDragState = null;
         }
       });
 
@@ -376,6 +565,7 @@ function init() {
           <span class="track-number">${trackCount}</span>
           <span class="track-name" contenteditable="true" spellcheck="false">${trackName}</span>
           <input type="color" class="track-color-picker" value="${defaultColor}">
+          <button class="remove-track-btn" title="Remove Track">${removeSvg}</button>
         </div>
         <div class="track-controls">
           <button class="t-btn m-btn">M</button>
@@ -390,6 +580,7 @@ function init() {
       const laneContainer = document.getElementById('track-lanes-container')
       const lane = document.createElement('div')
       lane.className = 'track-lane'
+      lane.dataset.trackId = trackId
       laneContainer.appendChild(lane)
 
       // 4. Mixer Channel
@@ -456,6 +647,26 @@ function init() {
       trackUIMap[trackId].mixers.push({ mBtn: mBtnM, sBtn: sBtnM, nameEl: nameElM, channelEl: channel, faderEl, faderTrackEl, dbLabel })
       trackUIMap[trackId].seqRows.push(seqRow)
 
+      // Remove Track Logic
+      header.querySelector('.remove-track-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm(`Remove track "${trackName}"?`)) {
+          engine.removeTrack(trackId);
+          delete sequencer.patterns[trackId];
+          sequencer.clips = sequencer.clips.filter(c => c.trackId !== trackId);
+          header.remove();
+          lane.remove();
+          channel.remove();
+          seqRow.remove();
+          const prSelect = document.getElementById('pr-track-select');
+          if (prSelect) {
+            const opt = Array.from(prSelect.options).find(o => o.value === trackId);
+            if (opt) opt.remove();
+          }
+          delete trackUIMap[trackId];
+        }
+      });
+
       // Volume & Fader Logic
       if (volSlider) {
         volSlider.addEventListener('input', (e) => {
@@ -501,6 +712,53 @@ function init() {
       })
       nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); nameEl.blur() } })
 
+      async function loadInstrumentToTrack(tid, fileInfo) {
+        try {
+          const buffer = await window.api.readFile(fileInfo.path);
+          if (buffer) {
+            const audioBuffer = await engine.decodeAudioData(buffer.buffer);
+            const trackObj = engine.getTrack(tid);
+            if (trackObj) {
+              trackObj.instrumentBuffer = audioBuffer;
+              const match = fileInfo.name.match(/_([A-G]#?-?\d+)\./i);
+              if (match) {
+                trackObj.instrumentRootMidi = parseNoteToMidi(match[1]);
+              } else {
+                trackObj.instrumentRootMidi = 60; // Default C4 if no note in filename
+              }
+              const cleanName = fileInfo.name.split('.').slice(0, -1).join('.') || fileInfo.name;
+              
+              // Update UI names
+              if (nameEl) nameEl.textContent = cleanName;
+              if (nameElM) nameElM.textContent = cleanName;
+              const labelEl = seqRow.querySelector('.seq-label');
+              if (labelEl) labelEl.textContent = cleanName;
+              
+              const prSelect = document.getElementById('pr-track-select');
+              if (prSelect) {
+                const opt = Array.from(prSelect.options).find(o => o.value === tid);
+                if (opt) opt.textContent = cleanName;
+              }
+            }
+          }
+        } catch (err) { console.error('Instrument load error:', err); }
+      }
+
+      // Instrument Drop Zone on Header
+      header.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+      header.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        const data = e.dataTransfer.getData('text/plain');
+        if (!data) return;
+        try {
+          const fileInfo = JSON.parse(data);
+          await loadInstrumentToTrack(trackId, fileInfo);
+        } catch (err) { console.error('Instrument drop error:', err); }
+      });
+      
+      // Expose for initial loading
+      trackUIMap[trackId].loadInstrument = loadInstrumentToTrack;
+
       colorPicker.addEventListener('input', (e) => {
         const color = e.target.value
         header.style.setProperty('--track-color', color)
@@ -522,7 +780,12 @@ function init() {
       for (let i = 0; i < stepCount; i++) {
         const step = document.createElement('div')
         step.className = 'seq-step'
-        step.dataset.step = i
+        step.dataset.stepIndex = i
+        step.addEventListener('click', () => {
+          step.classList.toggle('active')
+          // Sync to piano roll
+          if (note) syncStepToPianoRoll(trackId, note, i, step.classList.contains('active'))
+        })
         seqStepsContainer.appendChild(step)
       }
 
@@ -531,9 +794,34 @@ function init() {
     }
 
     // Initialize Default Tracks
-    createTrackUI('drums', 'Drums', '#00e5ff')
-    createTrackUI('bass', 'Bass', '#ff33aa')
-    createTrackUI('synth', 'Synth', '#ffaa00')
+    createTrackUI('kick', 'Kick', '#00e5ff')
+    createTrackUI('snare', 'Snare', '#00e5ff')
+    createTrackUI('hihat', 'Hihat', '#00e5ff')
+    createTrackUI('piano', 'Piano', '#ff33aa')
+    createTrackUI('bass', 'Bass', '#ffaa00')
+
+    // Auto-load default instruments
+    setTimeout(async () => {
+      try {
+        const defaultPath = window.location.href.includes('index.html') 
+          ? window.location.pathname.replace('index.html', 'assets/audio')
+          : '/home/lexxy/Documents/projects/bounce/src/renderer/assets/audio'
+        
+        const defaultSamples = [
+          { tid: 'kick', name: 'kick.wav', path: `${defaultPath}/Starter Pack/Drum Kit/kick.wav` },
+          { tid: 'snare', name: 'snare.wav', path: `${defaultPath}/Starter Pack/Drum Kit/snare.wav` },
+          { tid: 'hihat', name: 'hihat.wav', path: `${defaultPath}/Starter Pack/Drum Kit/hihat.wav` },
+          { tid: 'piano', name: 'epiano_C4.wav', path: `${defaultPath}/Starter Pack/Keys/epiano_C4.wav` },
+          { tid: 'bass', name: 'sub_bass_C2.wav', path: `${defaultPath}/Starter Pack/Bass/sub_bass_C2.wav` }
+        ]
+        
+        for (const s of defaultSamples) {
+          if (trackUIMap[s.tid] && trackUIMap[s.tid].loadInstrument) {
+            await trackUIMap[s.tid].loadInstrument(s.tid, s)
+          }
+        }
+      } catch (e) { console.warn("Could not auto-load instruments", e) }
+    }, 800)
 
     // Add Track Button
     const addTrackBtn = document.getElementById('add-track-btn')
@@ -608,6 +896,20 @@ function init() {
 
     // Animation Loop for Peak Meters
     function renderLoop() {
+      // Update dynamic position
+      const posDisplay = document.getElementById('position-display')
+      if (posDisplay) {
+        const timeInSeconds = sequencer.isPlaying ? engine.ctx.currentTime - sequencer.startTime : sequencer.pauseTime
+        const beatsPerSecond = sequencer.bpm / 60
+        const totalBeats = timeInSeconds * beatsPerSecond
+        const beatsPerBar = sequencer.timeSignature?.numerator || 4
+        const bars = Math.floor(totalBeats / beatsPerBar) + 1
+        const beats = Math.floor(totalBeats % beatsPerBar) + 1
+        const ticks = Math.floor((totalBeats - Math.floor(totalBeats)) * 16) + 1 // Sixteenths
+        const pad = (n, s) => n.toString().padStart(s, '0')
+        posDisplay.textContent = `${pad(bars, 3)} : ${pad(beats, 2)} : ${pad(ticks, 2)}`
+      }
+
       mixerChannels.forEach((channel) => {
         if (!channel._meterLevel) return
         
@@ -679,39 +981,46 @@ function init() {
     // ── Editable BPM ──────────────────────────────────────────────
     const bpmDisplay = document.getElementById('bpm-display')
     if (bpmDisplay) {
-      bpmDisplay.contentEditable = 'true'
-      bpmDisplay.spellcheck = false
-      bpmDisplay.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); bpmDisplay.blur() }
-        if (!/[\d.]|Backspace|Delete|Arrow/.test(e.key) && e.key.length === 1) e.preventDefault()
+      let isDraggingBPM = false
+      let startY = 0
+      let startBPM = 0
+      
+      bpmDisplay.addEventListener('mousedown', (e) => {
+        isDraggingBPM = true
+        startY = e.clientY
+        startBPM = sequencer.bpm
+        document.body.style.cursor = 'ns-resize'
+        e.preventDefault()
       })
-      bpmDisplay.addEventListener('focus', () => {
-        const r = document.createRange(); r.selectNodeContents(bpmDisplay)
-        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r)
+      
+      document.addEventListener('mousemove', (e) => {
+        if (!isDraggingBPM) return
+        const deltaY = startY - e.clientY
+        let newBPM = startBPM + deltaY * 0.5
+        newBPM = Math.max(20, Math.min(999, newBPM))
+        sequencer.bpm = newBPM
+        bpmDisplay.textContent = newBPM.toFixed(1)
+        drawTimeline()
       })
-      bpmDisplay.addEventListener('blur', () => {
-        const v = parseFloat(bpmDisplay.textContent)
-        if (v > 0 && v <= 999) { sequencer.bpm = v; bpmDisplay.textContent = v.toFixed(1); drawTimeline() }
-        else bpmDisplay.textContent = sequencer.bpm.toFixed(1)
+      
+      document.addEventListener('mouseup', () => {
+        if (isDraggingBPM) {
+          isDraggingBPM = false
+          document.body.style.cursor = ''
+        }
       })
     }
 
     // ── Editable Time Signature ───────────────────────────────────
     const timeSigDisplay = document.getElementById('time-sig-display')
     if (timeSigDisplay) {
-      timeSigDisplay.contentEditable = 'true'
-      timeSigDisplay.spellcheck = false
-      timeSigDisplay.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); timeSigDisplay.blur() }
-      })
-      timeSigDisplay.addEventListener('blur', () => {
-        const parts = timeSigDisplay.textContent.trim().split('/')
+      timeSigDisplay.addEventListener('change', (e) => {
+        const parts = e.target.value.split('/')
         const num = parseInt(parts[0]), den = parseInt(parts[1])
         if (num > 0 && den > 0) {
           sequencer.timeSignature = { numerator: num, denominator: den }
-          timeSigDisplay.textContent = `${num}/${den}`
           drawTimeline()
-        } else timeSigDisplay.textContent = `${sequencer.timeSignature?.numerator || 4}/${sequencer.timeSignature?.denominator || 4}`
+        }
       })
     }
 
@@ -721,6 +1030,7 @@ function init() {
     function buildStepRows(count) {
       document.querySelectorAll('.seq-steps').forEach(container => {
         const note = container.dataset.note || null
+        const trackId = container.dataset.instrument || 'drums'
         container.innerHTML = ''
         for (let i = 0; i < count; i++) {
           const step = document.createElement('div')
@@ -729,7 +1039,7 @@ function init() {
           step.addEventListener('click', () => {
             step.classList.toggle('active')
             // Sync to piano roll
-            if (note) syncStepToPianoRoll(note, i, step.classList.contains('active'))
+            if (note) syncStepToPianoRoll(trackId, note, i, step.classList.contains('active'))
           })
           container.appendChild(step)
         }
@@ -738,23 +1048,116 @@ function init() {
       document.getElementById('piano-grid')?.style.setProperty('--pr-step-px', `${PR_STEP_PX}px`)
     }
 
-    function syncStepToPianoRoll(noteName, stepIndex, active) {
-      const grid = document.getElementById('piano-grid')
-      if (!grid) return
-      const row = grid.querySelector(`[data-note="${noteName}"]`)
-      if (!row) return
-      const existing = row.querySelector(`[data-step="${stepIndex}"]`)
-      if (active && !existing) {
-        const n = document.createElement('div')
-        n.className = 'pr-note'
-        n.dataset.step = stepIndex
-        n.style.left = `${stepIndex * PR_STEP_PX + 1}px`
-        n.style.width = `${PR_STEP_PX - 3}px`
-        n.addEventListener('click', (e) => { e.stopPropagation(); n.remove() })
-        row.appendChild(n)
-      } else if (!active && existing) {
-        existing.remove()
+    function syncPatternClip(trackId) {
+      if (!trackId) return;
+      const lane = document.querySelector(`.track-lane[data-track-id="${trackId}"]`);
+      if (!lane) return;
+      
+      let pClip = lane.querySelector('.pattern-clip');
+      const trackNotes = sequencer.patterns[trackId] || [];
+      
+      if (trackNotes.length === 0) {
+        if (pClip) pClip.remove();
+        return;
       }
+      
+      let maxStep = 0;
+      trackNotes.forEach(n => {
+        const endStep = n.step + n.durationSteps;
+        if (endStep > maxStep) maxStep = endStep;
+      });
+      
+      const beatsPerSecond = sequencer.bpm / 60;
+      const secondsPerStep = (1 / beatsPerSecond) / 4;
+      const maxTime = maxStep * secondsPerStep;
+      
+      // Complete the musical length (round up to nearest bar)
+      const beatsPerBar = sequencer.timeSignature?.numerator || 4;
+      const secondsPerBar = (60 / sequencer.bpm) * beatsPerBar;
+      const musicalDuration = Math.ceil((maxTime - 0.01) / secondsPerBar) * secondsPerBar;
+      const finalDuration = Math.max(secondsPerBar, musicalDuration);
+      
+      if (!pClip) {
+        pClip = document.createElement('div');
+        pClip.className = 'clip pattern-clip';
+        pClip.style.left = '0px';
+        pClip.style.border = '1px solid rgba(255,255,255,0.4)';
+        pClip.style.opacity = '0.6';
+        pClip.style.pointerEvents = 'none';
+        
+        const map = trackUIMap[trackId];
+        if (map && map.headers[0]) {
+          const color = map.headers[0].laneEl.style.getPropertyValue('--track-color');
+          if (color) pClip.style.background = color;
+        }
+        lane.appendChild(pClip);
+      }
+      
+      pClip.style.width = `${Math.floor(finalDuration * sequencer.pxPerSecond)}px`;
+      
+      // Draw mini notes
+      pClip.innerHTML = `<span style="font-size:9px; padding-left:4px; opacity: 0.8; position: absolute; top: 2px; color: rgba(0,0,0,0.9); pointer-events:none; font-weight: bold;">Pattern</span>`;
+      trackNotes.forEach(n => {
+        const mini = document.createElement('div');
+        mini.className = 'pattern-mini-note';
+        mini.style.background = 'rgba(0, 0, 0, 0.5)';
+        const startX = (n.step * secondsPerStep) * sequencer.pxPerSecond;
+        const width = (n.durationSteps * secondsPerStep) * sequencer.pxPerSecond;
+        
+        const midi = parseNoteToMidi(n.note);
+        // MIDI 24 (C1) to 96 (C7) mapping
+        const topPercent = 100 - ((midi - 24) / 72 * 100);
+        
+        mini.style.left = `${startX}px`;
+        mini.style.width = `${Math.max(3, width - 1)}px`;
+        mini.style.top = `${Math.max(10, Math.min(85, topPercent))}%`;
+        pClip.appendChild(mini);
+      });
+    }
+
+    function syncStepToPianoRoll(trackId, noteName, stepIndex, active) {
+      const grid = document.getElementById('piano-grid')
+      const currentPrTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+      
+      if (grid && trackId === currentPrTrackId) {
+        const row = grid.querySelector(`[data-note="${noteName}"]`)
+        if (row) {
+          const existing = row.querySelector(`[data-step="${stepIndex}"]`)
+          if (active && !existing) {
+            const n = document.createElement('div')
+            n.className = 'pr-note'
+            n.dataset.step = stepIndex
+            n.style.left = `${stepIndex * PR_STEP_PX + 1}px`
+            n.style.width = `${PR_STEP_PX - 3}px`
+            const map = trackUIMap[trackId]
+            if (map && map.headers[0]) {
+              const color = map.headers[0].laneEl.style.getPropertyValue('--track-color')
+              if (color) n.style.background = color
+            }
+            n.addEventListener('click', (e) => { 
+              e.stopPropagation(); 
+              n.remove();
+              sequencer.removeNoteFromPattern(trackId, noteName, stepIndex);
+              const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${trackId}"][data-note="${noteName}"]`);
+              if (stepSeqRow) {
+                const s = stepSeqRow.querySelector(`[data-step-index="${stepIndex}"]`);
+                if (s) s.classList.remove('active');
+              }
+            })
+            row.appendChild(n)
+          } else if (!active && existing) {
+            existing.remove()
+          }
+        }
+      }
+      
+      if (active) {
+        sequencer.addNoteToPattern(trackId, noteName, stepIndex, 1);
+        engine.playNote(trackId, noteName, engine.ctx.currentTime, 0.2);
+      } else {
+        sequencer.removeNoteFromPattern(trackId, noteName, stepIndex);
+      }
+      syncPatternClip(trackId);
     }
 
     buildStepRows(16)
@@ -763,42 +1166,254 @@ function init() {
       buildStepRows(parseInt(e.target.value))
     })
 
-    // ── Piano Roll click-to-create notes ─────────────────────────
+    // ── Piano Roll Advanced Interactions ─────────────────────────
     const pianoGrid = document.getElementById('piano-grid')
     const prTrackSelect = document.getElementById('pr-track-select')
     
+    let prDragState = null; // { type: 'move'|'resize'|'paint', noteElement, startX, startY, startStep, startDur, originalNoteObj, trackId }
+    
+    function createPrNote(trackId, noteName, stepIndex, durationSteps, color) {
+      const note = document.createElement('div')
+      note.className = 'pr-note'
+      note.dataset.step = stepIndex
+      note.dataset.duration = durationSteps
+      note.style.left = `${stepIndex * PR_STEP_PX + 1}px`
+      note.style.width = `${durationSteps * PR_STEP_PX - 3}px`
+      if (color) note.style.background = color
+      
+      const handle = document.createElement('div')
+      handle.className = 'resize-handle'
+      note.appendChild(handle)
+      
+      return note;
+    }
+
     if (pianoGrid) {
-      pianoGrid.addEventListener('click', (e) => {
-        if (e.target.classList.contains('pr-note')) return
-        const row = e.target.closest('.pr-row')
-        if (!row) return
+      pianoGrid.addEventListener('mousedown', (e) => {
         const gridRect = pianoGrid.getBoundingClientRect()
-        const x = e.clientX - gridRect.left + pianoGrid.scrollLeft
-        const stepIndex = Math.floor(x / PR_STEP_PX)
-        const existing = row.querySelector(`[data-step="${stepIndex}"]`)
-        if (existing) { existing.remove(); return }
-        
-        const note = document.createElement('div')
-        note.className = 'pr-note'
-        note.dataset.step = stepIndex
-        note.style.left = `${stepIndex * PR_STEP_PX + 1}px`
-        note.style.width = `${PR_STEP_PX - 3}px`
-        
-        // Grab color from currently selected track
         const currentTrackId = prTrackSelect ? prTrackSelect.value : 'drums'
-        const map = trackUIMap[currentTrackId]
-        if (map && map.headers[0]) {
-          const color = map.headers[0].laneEl.style.getPropertyValue('--track-color')
-          if (color) note.style.background = color
+        
+        // Resize handle
+        if (e.target.classList.contains('resize-handle')) {
+          e.preventDefault()
+          e.stopPropagation()
+          const noteEl = e.target.closest('.pr-note')
+          const row = noteEl.closest('.pr-row')
+          prDragState = {
+            type: e.shiftKey ? 'paint' : 'resize',
+            noteElement: noteEl,
+            startX: e.clientX,
+            startStep: parseInt(noteEl.dataset.step),
+            startDur: parseFloat(noteEl.dataset.duration || 1),
+            noteName: row.dataset.note,
+            trackId: currentTrackId
+          }
+          return;
         }
         
-        note.addEventListener('click', (ev) => { ev.stopPropagation(); note.remove() })
-        row.appendChild(note)
+        // Existing note click/drag
+        const noteEl = e.target.closest('.pr-note')
+        if (noteEl) {
+          e.preventDefault()
+          e.stopPropagation()
+          const row = noteEl.closest('.pr-row')
+          
+          if (e.ctrlKey || e.metaKey) {
+            // Duplicate
+            const clone = noteEl.cloneNode(true)
+            row.appendChild(clone)
+            prDragState = {
+              type: 'move',
+              noteElement: clone,
+              startX: e.clientX,
+              startY: e.clientY,
+              startStep: parseInt(noteEl.dataset.step),
+              startDur: parseFloat(noteEl.dataset.duration || 1),
+              noteName: row.dataset.note,
+              trackId: currentTrackId,
+              isClone: true
+            }
+            clone.classList.add('dragging')
+          } else {
+            // Move
+            prDragState = {
+              type: 'move',
+              noteElement: noteEl,
+              startX: e.clientX,
+              startY: e.clientY,
+              startStep: parseInt(noteEl.dataset.step),
+              startDur: parseFloat(noteEl.dataset.duration || 1),
+              noteName: row.dataset.note,
+              trackId: currentTrackId,
+              isClone: false
+            }
+            noteEl.classList.add('dragging')
+          }
+          return;
+        }
+        
+        // Empty grid click (Create)
+        const row = e.target.closest('.pr-row')
+        if (row) {
+          const noteName = row.dataset.note
+          const x = e.clientX - gridRect.left + pianoGrid.scrollLeft
+          const stepIndex = Math.floor(x / PR_STEP_PX)
+          
+          const existing = row.querySelector(`[data-step="${stepIndex}"]`)
+          if (existing) { 
+            // This case is handled by noteEl click, but fallback
+            return 
+          }
+          
+          const map = trackUIMap[currentTrackId]
+          const color = map && map.headers[0] ? map.headers[0].laneEl.style.getPropertyValue('--track-color') : null
+          
+          const note = createPrNote(currentTrackId, noteName, stepIndex, 1, color)
+          row.appendChild(note)
+          sequencer.addNoteToPattern(currentTrackId, noteName, stepIndex, 1)
+          
+          const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${noteName}"]`);
+          if (stepSeqRow) {
+            const s = stepSeqRow.querySelector(`[data-step-index="${stepIndex}"]`);
+            if (s) s.classList.add('active');
+          }
+          
+          engine.playNote(currentTrackId, noteName, engine.ctx.currentTime, 0.2)
+        }
       })
+      
+      document.addEventListener('mousemove', (e) => {
+        if (!prDragState) return;
+        const gridRect = pianoGrid.getBoundingClientRect();
+        
+        if (prDragState.type === 'resize' || prDragState.type === 'paint') {
+          const deltaX = e.clientX - prDragState.startX;
+          const newDur = Math.max(0.25, prDragState.startDur + deltaX / PR_STEP_PX);
+          prDragState.noteElement.style.width = `${newDur * PR_STEP_PX - 3}px`;
+          prDragState.noteElement.dataset.duration = newDur;
+          
+          if (prDragState.type === 'paint') {
+             // Future extension: spawn duplicates instead of resizing
+          }
+        } else if (prDragState.type === 'move') {
+          const deltaX = e.clientX - prDragState.startX;
+          const newStep = Math.max(0, Math.round(prDragState.startStep + deltaX / PR_STEP_PX));
+          prDragState.noteElement.style.left = `${newStep * PR_STEP_PX + 1}px`;
+          prDragState.noteElement.dataset.step = newStep;
+          
+          // Vertical dragging (Pitch change)
+          const elementsUnder = document.elementsFromPoint(e.clientX, e.clientY);
+          const newRow = elementsUnder.find(el => el.classList.contains('pr-row'));
+          if (newRow && newRow !== prDragState.noteElement.parentElement) {
+             newRow.appendChild(prDragState.noteElement);
+          }
+        }
+      });
+      
+      document.addEventListener('mouseup', (e) => {
+        if (prDragState) {
+          prDragState.noteElement.classList.remove('dragging');
+          
+          const finalStep = parseFloat(prDragState.noteElement.dataset.step);
+          const finalDur = parseFloat(prDragState.noteElement.dataset.duration);
+          const row = prDragState.noteElement.closest('.pr-row');
+          const finalNoteName = row ? row.dataset.note : prDragState.noteName;
+          
+          if (prDragState.type === 'move' && !prDragState.isClone) {
+            // Remove old
+            sequencer.removeNoteFromPattern(prDragState.trackId, prDragState.noteName, prDragState.startStep);
+            const oldSeqRow = document.querySelector(`.seq-steps[data-instrument="${prDragState.trackId}"][data-note="${prDragState.noteName}"]`);
+            if (oldSeqRow) {
+              const s = oldSeqRow.querySelector(`[data-step-index="${prDragState.startStep}"]`);
+              if (s) s.classList.remove('active');
+            }
+          }
+          
+          if (prDragState.type === 'move') {
+             // Did they just click? (No movement)
+             if (Math.abs(e.clientX - prDragState.startX) < 3 && Math.abs(e.clientY - prDragState.startY) < 3 && !prDragState.isClone) {
+                prDragState.noteElement.remove();
+             } else {
+                sequencer.addNoteToPattern(prDragState.trackId, finalNoteName, finalStep, finalDur);
+                engine.playNote(prDragState.trackId, finalNoteName, engine.ctx.currentTime, 0.2);
+             }
+          } else if (prDragState.type === 'resize' || prDragState.type === 'paint') {
+             sequencer.removeNoteFromPattern(prDragState.trackId, prDragState.noteName, prDragState.startStep);
+             sequencer.addNoteToPattern(prDragState.trackId, finalNoteName, finalStep, finalDur);
+          }
+          
+          syncPatternClip(prDragState.trackId);
+          prDragState = null;
+        }
+      });
+    }
+    
+    if (prTrackSelect) {
+      prTrackSelect.addEventListener('change', () => {
+        const trackId = prTrackSelect.value;
+        const grid = document.getElementById('piano-grid');
+        grid.querySelectorAll('.pr-note').forEach(n => n.remove());
+        
+        if (sequencer.patterns[trackId]) {
+          const map = trackUIMap[trackId];
+          const color = map && map.headers[0] ? map.headers[0].laneEl.style.getPropertyValue('--track-color') : null;
+          
+          sequencer.patterns[trackId].forEach(noteObj => {
+            const row = grid.querySelector(`[data-note="${noteObj.note}"]`);
+            if (row) {
+              const note = createPrNote(trackId, noteObj.note, noteObj.step, noteObj.durationSteps, color)
+              row.appendChild(note);
+            }
+          });
+        }
+      });
     }
 
     // ── Build Piano Roll ──────────────────────────────────────────
     buildPianoRoll(PR_STEP_PX)
+    
+    function drawPianoRollTimeline() {
+      const ruler = document.getElementById('pr-ruler')
+      const grid = document.getElementById('piano-grid')
+      if (!ruler || !grid) return
+
+      const beatsPerSecond = sequencer.bpm / 60
+      const beatsPerBar = sequencer.timeSignature?.numerator || 4
+      
+      const gridSnapSelect = document.getElementById('grid-snap-select')
+      const snapInterval = gridSnapSelect ? eval(gridSnapSelect.value) : 0.25 // defaults to 1/4 note
+      
+      const beatPixels = PR_STEP_PX * 4 // Assuming 1 step = 1/16th note, 4 steps = 1 beat
+      const barPixels = beatsPerBar * beatPixels
+      const stepPixels = PR_STEP_PX
+      
+      // Calculate snap pixels
+      // snapInterval of 1/4 = 1 beat. 1/8 = 0.5 beat. 1/16 = 0.25 beat.
+      // So snapPixels = snapInterval * 4 * beatPixels? No, snapInterval is in notes where 1 = whole note.
+      // 1/4 note = 1 beat = beatPixels. 
+      // 1/16 note = 0.25 beat = 0.25 * beatPixels = PR_STEP_PX.
+      // 1 whole note = 4 beats = 4 * beatPixels.
+      const snapPixels = snapInterval * 4 * beatPixels
+      
+      grid.style.backgroundImage = `
+        repeating-linear-gradient(90deg, transparent, transparent calc(${barPixels}px - 1px), rgba(255,255,255,0.15) calc(${barPixels}px - 1px), rgba(255,255,255,0.15) ${barPixels}px),
+        repeating-linear-gradient(90deg, transparent, transparent calc(${beatPixels}px - 1px), rgba(255,255,255,0.08) calc(${beatPixels}px - 1px), rgba(255,255,255,0.08) ${beatPixels}px),
+        repeating-linear-gradient(90deg, transparent, transparent calc(${snapPixels}px - 1px), rgba(255,255,255,0.1) calc(${snapPixels}px - 1px), rgba(255,255,255,0.1) ${snapPixels}px)
+      `
+      
+      ruler.innerHTML = ''
+      const numBars = Math.ceil(3000 / barPixels) 
+      
+      for(let i = 0; i < numBars; i++) {
+        const span = document.createElement('span')
+        span.textContent = i + 1
+        span.style.width = `${barPixels}px`
+        ruler.appendChild(span)
+      }
+    }
+    
+    // Call it initially
+    drawPianoRollTimeline();
 
     // ── Footer collapse ───────────────────────────────────────────
     document.getElementById('footer-collapse-btn')?.addEventListener('click', () => {
@@ -829,6 +1444,13 @@ function buildPianoRoll(PR_STEP_PX = 32) {
       const key = document.createElement('div')
       key.className = `pr-key ${isBlack ? 'pr-black' : 'pr-white'}`
       key.style.height = `${KEY_HEIGHT}px`
+      key.dataset.note = note
+      
+      key.addEventListener('mousedown', () => {
+        const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+        engine.playNote(currentTrackId, fullName, engine.ctx.currentTime, 0.5);
+      });
+      
       if (!isBlack) {
         const label = document.createElement('span')
         label.className = 'pr-key-label'

@@ -1,3 +1,13 @@
+const NOTE_TO_MIDI = { 'C':0, 'C#':1, 'D':2, 'D#':3, 'E':4, 'F':5, 'F#':6, 'G':7, 'G#':8, 'A':9, 'A#':10, 'B':11 };
+
+export function parseNoteToMidi(noteName) {
+  const match = noteName.match(/^([A-G]#?)(-?\d+)$/i);
+  if (!match) return 60; // Default C4
+  const note = match[1].toUpperCase();
+  const oct = parseInt(match[2]);
+  return (oct + 1) * 12 + NOTE_TO_MIDI[note];
+}
+
 class Track {
   constructor(audioContext, masterNode, name) {
     this.ctx = audioContext;
@@ -13,6 +23,10 @@ class Track {
     this.isMuted = false;
     this.isSoloed = false;
     this.isArmed = false;
+    
+    // Sampler Data
+    this.instrumentBuffer = null;
+    this.instrumentRootMidi = 60; // Default C4
     
     // Default values
     this.gainNode.gain.value = this.baseVolume; // default 80%
@@ -148,6 +162,37 @@ class AudioEngine {
 
   async decodeAudioData(arrayBuffer) {
     return await this.ctx.decodeAudioData(arrayBuffer);
+  }
+
+  playPreview(audioBuffer) {
+    if (this.previewSource) {
+      try { this.previewSource.stop(); } catch(e) {}
+    }
+    this.previewSource = this.ctx.createBufferSource();
+    this.previewSource.buffer = audioBuffer;
+    this.previewSource.connect(this.masterGain);
+    this.previewSource.start();
+  }
+
+  playNote(trackId, noteName, time, duration = 0) {
+    const track = this.getTrack(trackId);
+    if (!track || !track.instrumentBuffer) return null;
+    
+    const midiNote = parseNoteToMidi(noteName);
+    const semitones = midiNote - track.instrumentRootMidi;
+    const rate = Math.pow(2, semitones / 12);
+    
+    const source = this.ctx.createBufferSource();
+    source.buffer = track.instrumentBuffer;
+    source.playbackRate.value = rate;
+    
+    source.connect(track.gainNode);
+    source.start(time);
+    if (duration > 0) {
+      // simple hard stop (could click, but good enough for a basic sampler)
+      source.stop(time + duration);
+    }
+    return source;
   }
 }
 

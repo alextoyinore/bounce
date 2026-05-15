@@ -7,8 +7,8 @@ import icon from '../../resources/icon.png?asset'
 function createWindow() {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 900,
+    height: 650,
     show: false,
     frame: false,
     autoHideMenuBar: true,
@@ -90,17 +90,29 @@ app.whenReady().then(() => {
 
   ipcMain.handle('fs:readDirectory', async (event, dirPath) => {
     try {
-      const files = await fs.readdir(dirPath)
-      const audioFiles = files.filter(file => {
-        const ext = extname(file).toLowerCase()
-        return ['.wav', '.mp3', '.ogg', '.flac'].includes(ext)
-      })
-      return audioFiles.map(file => ({
-        name: file,
-        path: join(dirPath, file)
-      }))
+      console.log('[Main] Reading directory:', dirPath)
+      const entries = await fs.readdir(dirPath, { withFileTypes: true })
+      const result = []
+      for (const entry of entries) {
+        const fullPath = join(dirPath, entry.name)
+        try {
+          const stats = await fs.stat(fullPath)
+          if (stats.isDirectory()) {
+            result.push({ name: entry.name, path: fullPath, type: 'directory' })
+          } else {
+            const ext = extname(entry.name).toLowerCase()
+            if (['.wav', '.mp3', '.ogg', '.flac'].includes(ext)) {
+              result.push({ name: entry.name, path: fullPath, type: 'file' })
+            }
+          }
+        } catch (e) {
+          console.error(`[Main] Failed to stat ${fullPath}:`, e)
+        }
+      }
+      console.log(`[Main] Found ${result.length} items in ${dirPath}`)
+      return result
     } catch (error) {
-      console.error('Failed to read directory:', error)
+      console.error('[Main] Failed to read directory:', dirPath, error)
       return []
     }
   })
