@@ -144,6 +144,16 @@ class AudioEngine {
     return this.tracks.get(id);
   }
 
+  removeTrack(id) {
+    const track = this.tracks.get(id);
+    if (track) {
+      try { track.gainNode.disconnect(); } catch(e) {}
+      try { track.analyserNode.disconnect(); } catch(e) {}
+      this.soloedTracks.delete(id);
+      this.tracks.delete(id);
+    }
+  }
+
   setMasterVolume(value) {
     this.masterGain.gain.value = value;
   }

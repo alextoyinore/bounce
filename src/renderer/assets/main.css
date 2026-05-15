@@ -866,57 +866,49 @@ footer {
 
 /* Piano Roll */
 .piano-keys {
-  width: 80px;
-  background: var(--surface-bg);
+  width: 180px;
+  background: #111;
   border-right: 1px solid var(--border-color);
-  overflow-y: hidden;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
 }
 
 .pr-key {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-right: 5px;
+  padding-right: 12px;
   box-sizing: border-box;
   cursor: pointer;
   user-select: none;
 }
 
-.pr-key-label {
-  font-size: 0.55rem;
-  color: #555;
-  font-family: 'JetBrains Mono', monospace;
-  line-height: 1;
-}
+
 
 .pr-white {
-  background: #f0f0f0;
+  background: #fff;
   color: #333;
   width: 100%;
 }
 
-.pr-white[data-note^="F"], .pr-white[data-note^="C"] {
-  border-bottom: 1px solid #ccc;
+.pr-white[data-note^="C"] {
+  background: #f0f0f0;
 }
 
 .pr-black {
-  background: #2a2a2a;
-  width: 50px;
-  border-radius: 0 3px 3px 0;
-  box-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+  background: #333;
+  width: 130px;
+  border-radius: 0 2px 2px 0;
   position: relative;
   z-index: 2;
   color: #aaa;
+  box-shadow: 2px 2px 4px rgba(0,0,0,0.5);
 }
 
-.pr-black::after {
-  content: '';
-  position: absolute;
-  left: 50px;
-  width: 30px;
-  height: 1px;
-  background: #ccc;
-  top: 7px;
+.pr-black:hover {
+  background: #444;
 }
 
 .pr-key { transition: transform 0.05s ease, filter 0.05s ease; cursor: pointer; }
@@ -935,29 +927,66 @@ footer {
 }
 
 .pr-ruler {
-  height: 20px;
+  height: 32px;
   background: var(--surface-hover);
   border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
+  position: sticky;
+  top: 0;
   display: flex;
-  overflow: hidden;
-  position: relative;
+  flex-direction: column;
+  z-index: 5;
+  cursor: ew-resize;
+}
+
+.pr-key-label {
+  font-size: 0.75rem;
+  color: #666;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.pr-ruler .ruler-bars, .pr-ruler .ruler-beats {
+  display: flex;
+  height: 16px;
+  align-items: flex-end;
+  padding-bottom: 2px;
+  width: max-content; /* Allow horizontal scrolling */
+}
+
+.pr-ruler .ruler-bars {
+  border-bottom: 1px solid var(--border-color);
 }
 
 .pr-ruler span {
-  font-size: 0.6rem;
-  color: var(--text-muted);
-  border-left: 1px solid rgba(255,255,255,0.1);
-  padding-left: 2px;
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  border-left: 1px solid rgba(255,255,255,0.2);
+  padding-left: 4px;
   box-sizing: border-box;
   display: flex;
   align-items: flex-end;
-  padding-bottom: 1px;
+  padding-bottom: 2px;
+  flex-shrink: 0;
+}
+
+.ruler-bar-num {
+  font-weight: 700;
+  color: var(--text-primary) !important;
+}
+
+.ruler-beat-num {
+  font-size: 0.55rem !important;
+  color: var(--text-muted) !important;
+  border-left: 1px solid rgba(255,255,255,0.08) !important;
+  height: 60%;
+  padding-left: 2px !important;
+  pointer-events: none;
 }
 
 .pr-note {
   position: absolute;
-  height: 12px;
+  height: 20px;
   background: #33ccff;
   border-radius: 2px;
   top: 1px;
@@ -987,10 +1016,11 @@ footer {
 }
 
 .pr-row {
-  width: 3000px;
+  width: 6000px;
   flex-shrink: 0;
   box-sizing: border-box;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+  position: relative;
+  /* Border is applied inline per row by buildPianoRoll() for per-key precision */
 }
 
 .pr-row-white {
@@ -999,10 +1029,6 @@ footer {
 
 .pr-row-black {
   background: #111114;
-}
-
-.pr-row:nth-child(12n+1) {
-  border-bottom-color: rgba(255,255,255,0.12);
 }
 
 /* Step Sequencer */
@@ -1044,8 +1070,8 @@ footer {
 }
 
 .seq-step {
-  flex: 1;
-  min-width: 22px;
+  flex: none;
+  width: 32px; /* overridden dynamically by JS via getPrStepPx() */
   height: 28px;
   border-radius: 4px;
   background: var(--surface-color);
@@ -1095,25 +1121,12 @@ footer {
 .lcd-editable:focus { border-bottom-color: var(--accent-color); }
 
 /* Piano Roll — position relative for note children */
-.pr-row { position: relative; }
+/* .pr-row position:relative is applied in the .pr-row block above */
 
-/* Piano Roll column grid lines via background */
+/* Piano Roll column grid lines — applied dynamically by drawPianoRollTimeline() */
+/* CSS fallback for when JS hasn't run yet */
 .piano-grid {
-  background-image:
-    repeating-linear-gradient(
-      90deg,
-      transparent,
-      transparent calc(var(--pr-step-px, 32px) * 4 - 1px),
-      rgba(255,255,255,0.25) calc(var(--pr-step-px, 32px) * 4 - 1px),
-      rgba(255,255,255,0.25) calc(var(--pr-step-px, 32px) * 4)
-    ),
-    repeating-linear-gradient(
-      90deg,
-      transparent,
-      transparent calc(var(--pr-step-px, 32px) - 1px),
-      rgba(255,255,255,0.08) calc(var(--pr-step-px, 32px) - 1px),
-      rgba(255,255,255,0.08) var(--pr-step-px, 32px)
-    );
+  background-image: none;
 }
 
 /* Piano Roll note cell */
@@ -1150,10 +1163,10 @@ footer {
 /* Pattern Mini Notes in Arranger */
 .pattern-mini-note {
   position: absolute;
-  height: 3px;
   background: rgba(0, 0, 0, 0.5);
   border-radius: 1px;
   pointer-events: none;
+  /* top/bottom/height managed by JS */
 }
 
 /* Active Transport Buttons (Loop Toggle) */
@@ -1182,4 +1195,16 @@ footer {
   padding: 0 !important;
   background: rgba(0,0,0,0.05);
   border: 1px solid rgba(255,255,255,0.2) !important;
+  cursor: grab;
+  overflow: hidden;
+}
+
+.pattern-clip:hover {
+  filter: brightness(1.1);
+}
+
+.pattern-clip.dragging {
+  opacity: 0.75;
+  cursor: grabbing;
+  z-index: 10;
 }

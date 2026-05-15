@@ -5,7 +5,10 @@ import { electronAPI } from '@electron-toolkit/preload'
 const api = {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   readDirectory: (dirPath) => ipcRenderer.invoke('fs:readDirectory', dirPath),
-  readFile: (filePath) => ipcRenderer.invoke('fs:readFile', filePath)
+  readFile: (filePath) => ipcRenderer.invoke('fs:readFile', filePath),
+  saveFile: (defaultPath) => ipcRenderer.invoke('dialog:saveFile', defaultPath),
+  openFile: () => ipcRenderer.invoke('dialog:openFile'),
+  writeFile: (filePath, data) => ipcRenderer.invoke('fs:writeFile', filePath, data)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

@@ -20,9 +20,10 @@
             <div class="menu-item-container">
               <span class="menu-label">File</span>
               <div class="dropdown-menu">
-                <div class="dropdown-item">New Project</div>
-                <div class="dropdown-item">Open Project...</div>
-                <div class="dropdown-item">Save</div>
+                <div class="dropdown-item" id="menu-new">New Project</div>
+                <div class="dropdown-item" id="menu-open">Open Project...</div>
+                <div class="dropdown-item" id="menu-save">Save</div>
+                <div class="dropdown-item" id="menu-saveas">Save As...</div>
                 <div class="dropdown-item">Export</div>
                 <div class="dropdown-divider"></div>
                 <div class="dropdown-item" id="menu-exit">Exit</div>
@@ -174,10 +175,17 @@
         </div>
         
         <div id="piano-roll-view" class="footer-panel editor-panel" style="flex-direction: column;">
-          <div class="pr-toolbar" style="display:flex; align-items:center; padding: 4px 12px; background: var(--surface-hover); border-bottom: 1px solid var(--border-color); width: 100%; flex-shrink: 0;">
-            <span style="font-size: 0.7rem; color: var(--text-secondary); margin-right: 8px;">Target Track:</span>
+          <div class="pr-toolbar" style="display:flex; align-items:center; padding: 4px 12px; background: var(--surface-hover); border-bottom: 1px solid var(--border-color); width: 100%; flex-shrink: 0; gap: 12px;">
+            <span style="font-size: 0.7rem; color: var(--text-secondary);">Track:</span>
             <select id="pr-track-select" class="btn" style="padding: 2px 6px; font-size: 0.7rem;">
             </select>
+            <div style="display:flex; align-items:center; gap:4px; margin-left: auto;">
+              <span style="font-size: 0.7rem; color: var(--text-secondary);">ZOOM</span>
+              <button id="pr-zoom-out" class="c-btn" title="Zoom Out (Ctrl+Scroll)" style="width:20px;height:20px;font-size:1rem;line-height:1;padding:0;">−</button>
+              <span id="pr-zoom-label" style="font-size:0.65rem;color:var(--accent-color);font-family:'JetBrains Mono',monospace;min-width:36px;text-align:center;">100%</span>
+              <button id="pr-zoom-in" class="c-btn" title="Zoom In (Ctrl+Scroll)" style="width:20px;height:20px;font-size:1rem;line-height:1;padding:0;">+</button>
+              <button id="pr-zoom-reset" class="c-btn" title="Reset Zoom" style="height:20px;font-size:0.6rem;padding:0 4px;">1:1</button>
+            </div>
           </div>
           <div style="display: flex; flex-grow: 1; overflow: hidden; position: relative;">
             <div class="piano-keys" id="piano-keys"></div>

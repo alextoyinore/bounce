@@ -7,7 +7,8 @@ export class Sequencer {
     this.startTime = 0;
     this.pauseTime = 0;
     this.clips = [];
-    this.patterns = {}; // { trackId: [ { note: 'C4', step: 0, durationSteps: 1, scheduled: false, sourceNode: null } ] }
+    this.patternClips = []; // { trackId, startTime, duration, uiElement }
+    this.patterns = {}; // { trackId: [ { note, step, durationSteps, scheduled, sourceNode } ] }
     this.timeSignature = { numerator: 4, denominator: 4 };
 
     // UI Elements
@@ -58,8 +59,21 @@ export class Sequencer {
     }
   }
 
+  addPatternClip(patternClip) {
+    this.patternClips.push(patternClip);
+  }
+
+  removePatternClip(patternClip) {
+    const index = this.patternClips.indexOf(patternClip);
+    if (index > -1) {
+      this.patternClips.splice(index, 1);
+    }
+  }
+
   addNoteToPattern(trackId, note, step, durationSteps = 1) {
     if (!this.patterns[trackId]) this.patterns[trackId] = [];
+    // Remove existing note at same position to avoid duplicates
+    this.patterns[trackId] = this.patterns[trackId].filter(n => !(n.note === note && n.step === step));
     this.patterns[trackId].push({ note, step, durationSteps, scheduled: false, sourceNode: null });
   }
 
@@ -71,12 +85,10 @@ export class Sequencer {
   play() {
     if (this.isPlaying) return;
     
-    // Need user interaction to resume audio context
     engine.resume();
     
     this.isPlaying = true;
     
-    // If resuming from pause, adjust startTime so we pick up where we left off
     if (this.pauseTime > 0) {
       this.startTime = engine.ctx.currentTime - this.pauseTime;
     } else {
@@ -90,7 +102,6 @@ export class Sequencer {
     this.isPlaying = false;
     this.pauseTime = 0;
     
-    // Stop all playing clips
     this.clips.forEach(clip => {
       if (clip.sourceNode) {
         try { clip.sourceNode.stop(); } catch (e) {}
@@ -106,7 +117,6 @@ export class Sequencer {
       });
     }
 
-    // Reset UI
     if (this.playheadEl) this.playheadEl.style.left = '0px';
     if (this.lcdPosition) this.lcdPosition.textContent = '001 : 01 : 00';
   }
@@ -116,7 +126,6 @@ export class Sequencer {
     this.isPlaying = false;
     this.pauseTime = engine.ctx.currentTime - this.startTime;
     
-    // Stop playing clips but don't reset time
     this.clips.forEach(clip => {
       if (clip.sourceNode) {
         try { clip.sourceNode.stop(); } catch (e) {}
@@ -148,104 +157,158 @@ export class Sequencer {
     }
   }
 
+  // ── Core scheduling helpers ───────────────────────────────────────────
+  _getMaxTime() {
+    const beatsPerBar = this.timeSignature?.numerator || 4;
+    const secondsPerBar = (60 / this.bpm) * beatsPerBar;
+    const beatsPerSecond = this.bpm / 60;
+    const secondsPerStep = (1 / beatsPerSecond) / 4;
+
+    let maxTime = 0;
+
+    this.clips.forEach(clip => {
+      const end = clip.startTime + clip.duration;
+      if (end > maxTime) maxTime = end;
+    });
+
+    // Pattern clips placed in the arranger
+    this.patternClips.forEach(pc => {
+      const end = pc.startTime + pc.duration;
+      if (end > maxTime) maxTime = end;
+    });
+
+    // Bare patterns (not yet placed as clips) still contribute
+    for (const trackId in this.patterns) {
+      // Only count if no pattern clip for that track
+      const hasPlacedClip = this.patternClips.some(pc => pc.trackId === trackId);
+      if (!hasPlacedClip) {
+        this.patterns[trackId].forEach(n => {
+          const end = (n.step + n.durationSteps) * secondsPerStep;
+          if (end > maxTime) maxTime = end;
+        });
+      }
+    }
+
+    if (maxTime > 0) {
+      maxTime = Math.ceil((maxTime - 0.01) / secondsPerBar) * secondsPerBar;
+    }
+
+    return maxTime;
+  }
+
+  _scheduleClips(currentTime, lookahead) {
+    this.clips.forEach(clip => {
+      if (
+        clip.startTime >= currentTime &&
+        clip.startTime < currentTime + lookahead &&
+        !clip.scheduled
+      ) {
+        clip.scheduled = true;
+        const source = engine.ctx.createBufferSource();
+        source.buffer = clip.buffer;
+        const track = engine.getTrack(clip.trackId);
+        if (track) {
+          source.connect(track.gainNode);
+          const exactTime = this.startTime + clip.startTime;
+          source.start(exactTime);
+          clip.sourceNode = source;
+          source.onended = () => { clip.sourceNode = null; };
+        }
+      }
+    });
+  }
+
+  _schedulePatterns(currentTime, lookahead) {
+    const beatsPerSecond = this.bpm / 60;
+    const secondsPerStep = (1 / beatsPerSecond) / 4;
+
+    for (const trackId in this.patterns) {
+      // Determine all start offsets for this track's pattern
+      const offsets = [];
+
+      // Find placed pattern clips for this track
+      const placedClips = this.patternClips.filter(pc => pc.trackId === trackId);
+      if (placedClips.length > 0) {
+        placedClips.forEach(pc => offsets.push({ startTime: pc.startTime, duration: pc.duration }));
+      } else {
+        // No placement = play from 0 with duration = full pattern length
+        offsets.push({ startTime: 0, duration: Infinity });
+      }
+
+      this.patterns[trackId].forEach(noteObj => {
+        const noteRelTime = noteObj.step * secondsPerStep;
+
+        offsets.forEach(offset => {
+          // Each note plays at startTime + noteRelTime, but only if within the clip's duration
+          if (noteRelTime >= offset.duration) return; // note trimmed off
+
+          const noteAbsTime = offset.startTime + noteRelTime;
+
+          if (
+            noteAbsTime >= currentTime &&
+            noteAbsTime < currentTime + lookahead &&
+            !noteObj._scheduledAt?.has(offset.startTime)
+          ) {
+            if (!noteObj._scheduledAt) noteObj._scheduledAt = new Set();
+            noteObj._scheduledAt.add(offset.startTime);
+
+            const exactTime = this.startTime + noteAbsTime;
+            const duration = noteObj.durationSteps * secondsPerStep;
+            const source = engine.playNote(trackId, noteObj.note, exactTime, duration);
+            if (source) {
+              source.onended = () => {};
+            }
+          }
+        });
+      });
+    }
+  }
+
+  _resetScheduled() {
+    this.clips.forEach(c => c.scheduled = false);
+    for (const t in this.patterns) {
+      this.patterns[t].forEach(n => {
+        n.scheduled = false;
+        n._scheduledAt = new Set();
+      });
+    }
+  }
+
   scheduleLoop() {
     if (!this.isPlaying) return;
 
     const currentTime = engine.ctx.currentTime - this.startTime;
 
-    // Update UI
     this.updatePlayhead(currentTime);
     this.updateLCD(currentTime);
 
-    // Lookahead scheduling (schedule clips that should start in the next 100ms)
-    const lookahead = 0.1; 
-    
-    // Calculate max time
-    let maxTime = 0;
-    this.clips.forEach(clip => {
-      const endTime = clip.startTime + clip.duration;
-      if (endTime > maxTime) maxTime = endTime;
-    });
-    
-    const beatsPerBar = this.timeSignature?.numerator || 4;
-    const secondsPerBar = (60 / this.bpm) * beatsPerBar;
-    const beatsPerSecond = this.bpm / 60;
-    const secondsPerStep = (1 / beatsPerSecond) / 4; // 1/16th note per step
-    
-    for (const trackId in this.patterns) {
-      this.patterns[trackId].forEach(n => {
-        const endTime = (n.step + n.durationSteps) * secondsPerStep;
-        if (endTime > maxTime) maxTime = endTime;
-      });
-    }
+    const lookahead = 0.1;
+    const maxTime = this._getMaxTime();
 
-    // Round up maxTime to complete the musical length (nearest bar)
-    if (maxTime > 0) {
-      maxTime = Math.ceil((maxTime - 0.01) / secondsPerBar) * secondsPerBar;
-    }
-    
-    // Loop / Auto-stop logic
-    if (maxTime > 0 && currentTime > maxTime) {
+    // ── Loop / Auto-stop ─────────────────────────────────────────────
+    if (maxTime > 0 && currentTime >= maxTime) {
       if (this.loopEnabled) {
+        // Advance the origin clock by exactly one loop length
         this.startTime += maxTime;
-        // Unschedule all to re-trigger
-        this.clips.forEach(c => c.scheduled = false);
-        for(const t in this.patterns) this.patterns[t].forEach(n => n.scheduled = false);
+
+        // Reset ALL scheduled flags immediately so beat 0 is caught this tick
+        this._resetScheduled();
+
+        // Schedule from the beginning inline (don't wait for next rAF)
+        const newCurrentTime = engine.ctx.currentTime - this.startTime; // ≈ 0
+        this._scheduleClips(newCurrentTime, lookahead);
+        this._schedulePatterns(newCurrentTime, lookahead);
+
+        requestAnimationFrame(() => this.scheduleLoop());
+        return;
       } else if (currentTime > maxTime + 0.5) {
         this.stop();
         return;
       }
     }
-    
-    this.clips.forEach(clip => {
-      // If clip is meant to play within our lookahead window and hasn't been scheduled yet
-      if (clip.startTime >= currentTime && clip.startTime < currentTime + lookahead && !clip.scheduled) {
-        clip.scheduled = true;
-        
-        // Create source and connect to track
-        const source = engine.ctx.createBufferSource();
-        source.buffer = clip.buffer;
-        
-        const track = engine.getTrack(clip.trackId);
-        if (track) {
-          source.connect(track.gainNode);
-          // Schedule it accurately on the audio hardware clock
-          const exactAudioClockTime = this.startTime + clip.startTime;
-          source.start(exactAudioClockTime);
-          
-          // Store reference to stop it later
-          clip.sourceNode = source;
-          
-          source.onended = () => {
-            clip.sourceNode = null;
-          };
-        }
-      }
-    });
 
-    // Schedule pattern notes
-    for (const trackId in this.patterns) {
-      this.patterns[trackId].forEach(noteObj => {
-        const noteStartTime = noteObj.step * secondsPerStep;
-        
-        if (noteStartTime >= currentTime && noteStartTime < currentTime + lookahead && !noteObj.scheduled) {
-          noteObj.scheduled = true;
-          
-          const exactAudioClockTime = this.startTime + noteStartTime;
-          const duration = noteObj.durationSteps * secondsPerStep;
-          
-          const source = engine.playNote(trackId, noteObj.note, exactAudioClockTime, duration);
-          if (source) {
-            noteObj.sourceNode = source;
-            source.onended = () => {
-              noteObj.sourceNode = null;
-            };
-          } else {
-            noteObj.scheduled = false;
-          }
-        }
-      });
-    }
+    this._scheduleClips(currentTime, lookahead);
+    this._schedulePatterns(currentTime, lookahead);
 
     requestAnimationFrame(() => this.scheduleLoop());
   }

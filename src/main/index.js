@@ -127,6 +127,36 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('dialog:saveFile', async (event, defaultPath) => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Save Bounce Project',
+      defaultPath: defaultPath || 'Untitled.bounce',
+      filters: [{ name: 'Bounce Project', extensions: ['bounce'] }]
+    })
+    if (canceled || !filePath) return null
+    return filePath
+  })
+
+  ipcMain.handle('dialog:openFile', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Open Bounce Project',
+      filters: [{ name: 'Bounce Project', extensions: ['bounce'] }],
+      properties: ['openFile']
+    })
+    if (canceled || !filePaths.length) return null
+    return filePaths[0]
+  })
+
+  ipcMain.handle('fs:writeFile', async (event, filePath, data) => {
+    try {
+      await fs.writeFile(filePath, data, 'utf-8')
+      return true
+    } catch (error) {
+      console.error('Failed to write file:', error)
+      return false
+    }
+  })
+
   createWindow()
 
   app.on('activate', function () {
