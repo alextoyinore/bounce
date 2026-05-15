@@ -47,14 +47,15 @@ body {
 /* ======== HEADER & TRANSPORT ======== */
 header {
   grid-column: 1 / -1;
+  height: var(--header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 0 0 16px; /* Removed right padding to flush window controls */
+  padding: 0 0 0 16px;
   background-color: var(--surface-color);
   border-bottom: 1px solid var(--border-color);
   z-index: 10;
-  -webkit-app-region: drag; /* Make header draggable */
+  -webkit-app-region: drag;
 }
 
 .logo-area {
