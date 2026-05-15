@@ -42,7 +42,7 @@ for (let i = 0; i < numSamples; i++) {
     hihat[i] = hp * env * 0.5;
 }
 
-const dir = 'src/renderer/assets/audio/Starter Pack/Drum Kit';
+const dir = 'src/renderer/public/audio/Starter Pack/Drum Kit';
 if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 writeWav(`${dir}/hihat.wav`, hihat, sampleRate);
 console.log('Regenerated hihat.wav');

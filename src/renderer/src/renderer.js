@@ -218,8 +218,8 @@ function init() {
     setTimeout(() => {
       try {
         const defaultPath = window.location.href.includes('index.html') 
-          ? window.location.pathname.replace('index.html', 'assets/audio')
-          : '/home/lexxy/Documents/projects/bounce/src/renderer/assets/audio'
+          ? window.location.pathname.replace('index.html', 'audio')
+          : '/home/lexxy/Documents/projects/bounce/src/renderer/public/audio'
         
         buildBrowserTree(browserContainer, 'Starter Pack', `${defaultPath}/Starter Pack`, false)
       } catch (e) { console.warn("Could not auto-load samples", e) }
@@ -827,20 +827,26 @@ function init() {
     createTrackUI('hihat', 'Hihat', '#00e5ff')
     createTrackUI('piano', 'Piano', '#ff33aa')
     createTrackUI('bass', 'Bass', '#ffaa00')
+    createTrackUI('clap', 'Clap', '#00ffaa')
+    createTrackUI('shaker', 'Shaker', '#00ffaa')
+    createTrackUI('tom_hi', 'Hi Tom', '#55aaff')
 
     // Auto-load default instruments
     setTimeout(async () => {
       try {
         const defaultPath = window.location.href.includes('index.html') 
-          ? window.location.pathname.replace('index.html', 'assets/audio')
-          : '/home/lexxy/Documents/projects/bounce/src/renderer/assets/audio'
+          ? window.location.pathname.replace('index.html', 'audio')
+          : '/home/lexxy/Documents/projects/bounce/src/renderer/public/audio'
         
         const defaultSamples = [
           { tid: 'kick', name: 'kick.wav', path: `${defaultPath}/Starter Pack/Drum Kit/kick.wav` },
           { tid: 'snare', name: 'snare.wav', path: `${defaultPath}/Starter Pack/Drum Kit/snare.wav` },
           { tid: 'hihat', name: 'hihat.wav', path: `${defaultPath}/Starter Pack/Drum Kit/hihat.wav` },
           { tid: 'piano', name: 'epiano_C4.wav', path: `${defaultPath}/Starter Pack/Keys/epiano_C4.wav` },
-          { tid: 'bass', name: 'sub_bass_C2.wav', path: `${defaultPath}/Starter Pack/Bass/sub_bass_C2.wav` }
+          { tid: 'bass', name: 'sub_bass_C2.wav', path: `${defaultPath}/Starter Pack/Bass/sub_bass_C2.wav` },
+          { tid: 'clap', name: 'clap.wav', path: `${defaultPath}/Starter Pack/Drum Kit/clap.wav` },
+          { tid: 'shaker', name: 'shaker.wav', path: `${defaultPath}/Starter Pack/Drum Kit/shaker.wav` },
+          { tid: 'tom_hi', name: 'tom_hi.wav', path: `${defaultPath}/Starter Pack/Drum Kit/tom_hi.wav` }
         ]
         
         for (const s of defaultSamples) {
