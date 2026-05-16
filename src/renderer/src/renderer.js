@@ -61,7 +61,7 @@ function init() {
 
     const playSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M232.4,114.49,88.32,26.35a16,16,0,0,0-24.32,13.65v176a16,16,0,0,0,24.32,13.65l144.08-88.14A16,16,0,0,0,232.4,114.49ZM80,216V40l144,88Z"></path></svg>'
     const pauseSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M216,48V208a16,16,0,0,1-16,16H160a16,16,0,0,1-16-16V48a16,16,0,0,1,16-16h40A16,16,0,0,1,216,48ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32ZM200,208V48H160V208ZM80,208V48H56V208Z"></path></svg>'
-    const fileSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM160,51.31,188.69,80H160ZM200,216H56V40h88V88a8,8,0,0,0,8,8h48V216Z"></path></svg>'
+    const fileSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M128,40a8,8,0,0,1,8,8V208a8,8,0,0,1-16,0V48A8,8,0,0,1,128,40ZM80,80a8,8,0,0,0-8,8v80a8,8,0,0,0,16,0V88A8,8,0,0,0,80,80ZM176,80a8,8,0,0,0-8,8v80a8,8,0,0,0,16,0V88A8,8,0,0,0,176,80ZM32,104a8,8,0,0,0-8,8v32a8,8,0,0,0,16,0V112A8,8,0,0,0,32,104ZM224,104a8,8,0,0,0-8,8v32a8,8,0,0,0,16,0V112A8,8,0,0,0,224,104Z"></path></svg>'
 
     playBtn?.addEventListener('click', () => {
       if (sequencer.isPlaying) {
@@ -152,9 +152,9 @@ function init() {
                 li.innerHTML = `
                   ${fileSvg}
                   <span class="browser-item-name">${entry.name}</span>
-                  <button class="browser-item-remove" title="Remove from list">${removeSvg}</button>
+                  ${isRemovable ? `<button class="browser-item-remove" title="Remove from list">${removeSvg}</button>` : ''}
                 `
-                li.querySelector('.browser-item-remove').addEventListener('click', (e) => {
+                li.querySelector('.browser-item-remove')?.addEventListener('click', (e) => {
                   e.stopPropagation()
                   li.remove()
                 })
@@ -623,7 +623,9 @@ function init() {
           <button class="t-btn m-btn">M</button>
           <button class="t-btn s-btn">S</button>
           <button class="t-btn r-btn"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"></path></svg></button>
-          <input type="range" class="track-vol-slider" min="0" max="100" value="80" title="Volume">
+          <div class="track-vol-knob" title="Volume">
+            <div class="knob-pointer"></div>
+          </div>
         </div>
       `
       headerContainer.appendChild(header)
@@ -695,7 +697,10 @@ function init() {
       channel._meterLevel = meterLevel
       channel._trackName = trackName
 
-      trackUIMap[trackId].headers.push({ mBtn: mBtnH, sBtn: sBtnH, rBtn: rBtnH, nameEl, colorPicker, laneEl: lane, headerEl: header, volSlider })
+      const volKnob = header.querySelector('.track-vol-knob')
+      const knobPointer = volKnob.querySelector('.knob-pointer')
+
+      trackUIMap[trackId].headers.push({ mBtn: mBtnH, sBtn: sBtnH, rBtn: rBtnH, nameEl, colorPicker, laneEl: lane, headerEl: header, volKnob, knobPointer })
       trackUIMap[trackId].mixers.push({ mBtn: mBtnM, sBtn: sBtnM, nameEl: nameElM, channelEl: channel, faderEl, faderTrackEl, dbLabel })
       trackUIMap[trackId].seqRows.push(seqRow)
 
@@ -724,18 +729,57 @@ function init() {
         }
       });
 
-      // Volume & Fader Logic
-      if (volSlider) {
-        volSlider.addEventListener('input', (e) => {
-          engine.resume()
-          const pct = parseFloat(e.target.value)
-          const gainValue = (pct / 100) * 1.5
+      // Volume & Knob Logic
+      if (volKnob) {
+        let isDragging = false
+        let startY = 0
+        let currentVal = 80 // Start at 80%
+
+        const updateKnob = (val) => {
+          currentVal = Math.max(0, Math.min(100, val))
+          const rotation = (currentVal / 100) * 270 - 135
+          knobPointer.style.transform = `rotate(${rotation}deg)`
+          
+          const gainValue = (currentVal / 100) * 1.5
           tracks[trackName].setVolume(gainValue)
           engine.updateTrackVolumes()
-          faderEl.style.bottom = `${pct}%`
+          
+          // Sync mixer fader
+          if (faderEl) faderEl.style.bottom = `${currentVal}%`
           const db = gainValue <= 0 ? -Infinity : 20 * Math.log10(gainValue)
-          dbLabel.textContent = db === -Infinity ? '-inf' : db.toFixed(1)
+          if (dbLabel) dbLabel.textContent = db === -Infinity ? '-inf' : db.toFixed(1)
+        }
+
+        // Initial setup
+        updateKnob(80)
+
+        volKnob.addEventListener('mousedown', (e) => {
+          engine.resume()
+          isDragging = true
+          startY = e.clientY
+          
+          const onMouseMove = (moveEvent) => {
+            if (!isDragging) return
+            const deltaY = startY - moveEvent.clientY
+            startY = moveEvent.clientY
+            updateKnob(currentVal + deltaY)
+          }
+
+          const onMouseUp = () => {
+            isDragging = false
+            document.removeEventListener('mousemove', onMouseMove)
+            document.removeEventListener('mouseup', onMouseUp)
+          }
+
+          document.addEventListener('mousemove', onMouseMove)
+          document.addEventListener('mouseup', onMouseUp)
         })
+
+        volKnob.addEventListener('wheel', (e) => {
+          e.preventDefault()
+          const delta = -e.deltaY / 10
+          updateKnob(currentVal + delta)
+        }, { passive: false })
       }
 
       if (faderEl) {
@@ -1801,7 +1845,7 @@ function buildPianoRoll() {
   const grid = document.getElementById('piano-grid')
   if (!keysContainer || !grid) return
 
-  const KEY_HEIGHT = 24
+  const KEY_HEIGHT = 22
   const NOTES_DESC = ['B','A#','A','G#','G','F#','F','E','D#','D','C#','C']
   const BLACK = new Set(['A#','C#','D#','F#','G#'])
   const OCTAVES = [6,5,4,3,2]
