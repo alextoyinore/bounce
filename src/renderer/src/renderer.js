@@ -7,6 +7,7 @@ function init() {
     
     let prZoomFactor = 1.0
     let currentProjectPath = null
+    let currentTrackId = 'kick' // Initialize with a default
     
     // Window controls
     document.getElementById('min-btn')?.addEventListener('click', () => {
