@@ -1758,6 +1758,13 @@ function init() {
           return;
         }
         
+        // Deselect if clicking empty space
+        if (!e.ctrlKey && !e.shiftKey && selectedNotes.size > 0) {
+          selectedNotes.forEach(n => n.classList.remove('selected'));
+          selectedNotes.clear();
+          return; // Stop here to avoid creating a note on the same click
+        }
+        
         // Create new note
         const row = e.target.closest('.pr-row')
         if (row) {
