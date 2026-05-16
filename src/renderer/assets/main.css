@@ -383,9 +383,12 @@ main {
 
 
 .timeline-corner {
-  height: 32px;
+  height: 40px;
   border-bottom: 1px solid var(--border-color);
   background: var(--surface-hover);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .track-header {
@@ -452,7 +455,8 @@ main {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  overflow: auto;
+  overflow-y: hidden; /* Vertical scroll handled by parent */
+  overflow-x: auto;
   position: relative;
   background-image: 
     linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px),
@@ -462,7 +466,7 @@ main {
 }
 
 .timeline-ruler {
-  height: 32px;
+  height: 40px;
   background: var(--surface-hover);
   border-bottom: 1px solid var(--border-color);
   position: sticky;
@@ -483,7 +487,7 @@ main {
 
 .ruler-bars, .ruler-beats {
   display: flex;
-  height: 16px;
+  height: 20px;
   align-items: flex-end;
   padding-bottom: 2px;
   width: 100%;
@@ -501,7 +505,7 @@ main {
 
 .grid-container {
   position: relative;
-  min-width: 100%;
+  min-width: 5000px; /* Ensure horizontal scroll is possible */
   min-height: 100%;
 }
 
@@ -518,7 +522,7 @@ main {
 .playhead::before {
   content: '';
   position: absolute;
-  top: -32px;
+  top: -40px;
   left: -4px;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
@@ -866,13 +870,14 @@ footer {
 
 /* Piano Roll */
 .piano-keys {
-  width: 180px;
-  background: #111;
+  width: 100px; /* Narrower for modern look */
+  background: var(--bg-color);
   border-right: 1px solid var(--border-color);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   z-index: 10;
+  flex-shrink: 0;
 }
 
 .pr-key {
@@ -888,23 +893,35 @@ footer {
 
 
 .pr-white {
-  background: #fff;
-  color: #333;
+  background: var(--surface-color);
+  color: var(--text-secondary);
   width: 100%;
-}
-
-.pr-white[data-note^="C"] {
-  background: #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .pr-black {
-  background: #333;
-  width: 130px;
-  border-radius: 0 2px 2px 0;
-  position: relative;
-  z-index: 2;
-  color: #aaa;
-  box-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+  background: var(--bg-color);
+  width: 100%;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+.pr-key-label {
+  font-size: 0.65rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.pr-key.active, .pr-key:active {
+  background: var(--accent-color);
+  color: #000;
+}
+
+.pr-key.active .pr-key-label, .pr-key:active .pr-key-label {
+  color: #000;
+  opacity: 1;
 }
 
 .pr-black:hover {
@@ -924,10 +941,11 @@ footer {
   position: relative;
   display: flex;
   flex-direction: column;
+  background: var(--bg-color);
 }
 
 .pr-ruler {
-  height: 32px;
+  height: 40px;
   background: var(--surface-hover);
   border-bottom: 1px solid var(--border-color);
   position: sticky;
@@ -986,14 +1004,15 @@ footer {
 
 .pr-note {
   position: absolute;
-  height: 20px;
-  background: #33ccff;
+  height: 22px;
+  background: var(--accent-color);
   border-radius: 2px;
   top: 1px;
   box-sizing: border-box;
-  border: 1px solid rgba(0,0,0,0.5);
+  border: 1px solid rgba(0,0,0,0.3);
   cursor: grab;
   user-select: none;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
 .pr-note.dragging {
@@ -1020,15 +1039,15 @@ footer {
   flex-shrink: 0;
   box-sizing: border-box;
   position: relative;
-  /* Border is applied inline per row by buildPianoRoll() for per-key precision */
+  border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 
 .pr-row-white {
-  background: #18181c;
+  background: #151518;
 }
 
 .pr-row-black {
-  background: #111114;
+  background: #0d0d0f;
 }
 
 /* Step Sequencer */

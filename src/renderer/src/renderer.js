@@ -214,6 +214,25 @@ function init() {
        setTimeout(updateArrangerGrid, 100);
     });
 
+    // Global Keybindings
+    window.addEventListener('keydown', (e) => {
+      // Don't trigger if user is typing in an input or contenteditable
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (sequencer.isPlaying) {
+          sequencer.pause();
+          if (playBtn) playBtn.innerHTML = playSvg;
+        } else {
+          sequencer.play();
+          if (playBtn) playBtn.innerHTML = pauseSvg;
+        }
+      }
+    });
+
     // Auto-load default samples
     setTimeout(() => {
       try {
@@ -1782,7 +1801,7 @@ function buildPianoRoll() {
   const grid = document.getElementById('piano-grid')
   if (!keysContainer || !grid) return
 
-  const KEY_HEIGHT = 22
+  const KEY_HEIGHT = 24
   const NOTES_DESC = ['B','A#','A','G#','G','F#','F','E','D#','D','C#','C']
   const BLACK = new Set(['A#','C#','D#','F#','G#'])
   const OCTAVES = [6,5,4,3,2]
@@ -1791,7 +1810,7 @@ function buildPianoRoll() {
   grid.innerHTML = ''
 
   // Add a spacer to the keys container to align with the ruler
-  const rulerHeight = document.getElementById('pr-ruler')?.offsetHeight || 32
+  const rulerHeight = 40 // Matched to CSS
   const spacer = document.createElement('div')
   spacer.style.height = `${rulerHeight}px`
   spacer.style.flexShrink = '0'
@@ -1807,7 +1826,6 @@ function buildPianoRoll() {
       key.className = `pr-key ${isBlack ? 'pr-black' : 'pr-white'}`
       key.style.height = `${KEY_HEIGHT}px`
       key.dataset.note = note
-      key.style.borderBottom = '1px solid rgba(255,255,255,0.1)'
 
       key.addEventListener('mousedown', () => {
         const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
@@ -1816,8 +1834,7 @@ function buildPianoRoll() {
 
       const label = document.createElement('span')
       label.className = 'pr-key-label'
-      label.textContent = note === 'C' ? fullName : note
-      if (isBlack) label.style.color = '#888'
+      label.textContent = fullName
       key.appendChild(label)
       
       keysContainer.appendChild(key)
@@ -1827,7 +1844,6 @@ function buildPianoRoll() {
       row.className = `pr-row ${isBlack ? 'pr-row-black' : 'pr-row-white'}`
       row.style.height = `${KEY_HEIGHT}px`
       row.dataset.note = fullName
-      row.style.borderBottom = '1px solid rgba(255,255,255,0.05)'
       grid.appendChild(row)
     })
   })
