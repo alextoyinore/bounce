@@ -902,13 +902,14 @@ function init() {
     createTrackUI('clap', 'Clap', '#00ffaa')
     createTrackUI('shaker', 'Shaker', '#00ffaa')
     createTrackUI('tom_hi', 'Hi Tom', '#55aaff')
+    createTrackUI('organ', 'Organ', '#00ff88')
 
     // Auto-load default instruments
     setTimeout(async () => {
       try {
         const defaultPath = window.location.href.includes('index.html') 
-          ? window.location.pathname.replace('index.html', 'audio')
-          : '/home/lexxy/Documents/projects/bounce/src/renderer/public/audio'
+          ? window.location.pathname.replace('index.html', 'audio').replace(/^\/([a-zA-Z]:)/, '$1')
+          : await window.api.getAudioPath()
         
         const defaultSamples = [
           { tid: 'kick', name: 'kick.wav', path: `${defaultPath}/Starter Pack/Drum Kit/kick.wav` },
@@ -918,7 +919,8 @@ function init() {
           { tid: 'bass', name: 'sub_bass_C2.wav', path: `${defaultPath}/Starter Pack/Bass/sub_bass_C2.wav` },
           { tid: 'clap', name: 'clap.wav', path: `${defaultPath}/Starter Pack/Drum Kit/clap.wav` },
           { tid: 'shaker', name: 'shaker.wav', path: `${defaultPath}/Starter Pack/Drum Kit/shaker.wav` },
-          { tid: 'tom_hi', name: 'tom_hi.wav', path: `${defaultPath}/Starter Pack/Drum Kit/tom_hi.wav` }
+          { tid: 'tom_hi', name: 'tom_hi.wav', path: `${defaultPath}/Starter Pack/Drum Kit/tom_hi.wav` },
+          { tid: 'organ', name: 'organ_C4.wav', path: `${defaultPath}/Starter Pack/Organ/organ_C4.wav` }
         ]
         
         for (const s of defaultSamples) {
