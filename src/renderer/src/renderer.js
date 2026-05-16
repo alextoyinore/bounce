@@ -53,6 +53,28 @@ function init() {
       window.electron.ipcRenderer.send('window-close')
     })
 
+    // Moved up for priority
+    document.getElementById('menu-install-pack')?.addEventListener('click', async (e) => {
+      console.log('[Renderer] Install Sound Pack clicked', e);
+      try {
+        const result = await window.api.installSoundPack();
+        console.log('[Renderer] Install result:', result);
+        if (result && result.success) {
+          const audioBase = await window.api.getAudioPath();
+          const newPackPath = audioBase.endsWith('/') || audioBase.endsWith('\\')
+            ? `${audioBase}${result.name}`
+            : `${audioBase}/${result.name}`;
+          
+          buildBrowserTree(browserContainer, result.name, newPackPath, true);
+          alert(`Successfully installed sound pack: ${result.name}`);
+        } else if (result && !result.success) {
+          alert(`Failed to install sound pack: ${result.error}`);
+        }
+      } catch (err) {
+        console.error('[Renderer] Install Sound Pack error:', err);
+      }
+    });
+
     // Transport Controls
     const playBtn = document.querySelector('.transport-btn.play')
     const stopBtn = document.querySelector('.transport-btn.stop')

@@ -117,23 +117,7 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('fs:readFile', async (event, filePath) => {
-    try {
-      // Return raw buffer to decode in renderer
-      return await fs.readFile(filePath)
-    } catch (error) {
-      console.error('Failed to read file:', error)
-      return null
-    }
-  })
-
-  ipcMain.handle('app:getAudioPath', () => {
-    if (is.dev) {
-      return join(app.getAppPath(), 'src', 'renderer', 'public', 'audio')
-    } else {
-      return join(app.getAppPath(), 'out', 'renderer', 'audio')
-    }
-  })
+  // These will be registered in app.whenReady()
 
   ipcMain.handle('dialog:saveFile', async (event, defaultPath) => {
     const { canceled, filePath } = await dialog.showSaveDialog({
@@ -162,6 +146,59 @@ app.whenReady().then(() => {
     } catch (error) {
       console.error('Failed to write file:', error)
       return false
+    }
+  })
+
+  // Register IPC handlers
+  ipcMain.handle('app:getAudioPath', () => {
+    if (is.dev) {
+      return join(app.getAppPath(), 'src/renderer/public/audio')
+    }
+    return join(process.resourcesPath, 'audio')
+  })
+
+  ipcMain.handle('app:installSoundPack', async () => {
+    console.log('[Main] Install sound pack requested')
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: 'Select Sound Pack Folder to Install'
+    })
+
+    if (canceled || filePaths.length === 0) return null
+
+    const srcPath = filePaths[0]
+    const packName = srcPath.split(/[/\\]/).pop()
+    const targetBase = is.dev 
+      ? join(app.getAppPath(), 'src/renderer/public/audio')
+      : join(process.resourcesPath, 'audio')
+    
+    const destPath = join(targetBase, packName)
+
+    try {
+      // Internal recursive copy function
+      const recursiveCopy = async (s, d) => {
+        await fs.mkdir(d, { recursive: true })
+        const entries = await fs.readdir(s, { withFileTypes: true })
+        for (const entry of entries) {
+          const sp = join(s, entry.name), dp = join(d, entry.name)
+          if (entry.isDirectory()) await recursiveCopy(sp, dp)
+          else await fs.copyFile(sp, dp)
+        }
+      }
+      await recursiveCopy(srcPath, destPath)
+      return { success: true, name: packName }
+    } catch (error) {
+      console.error('Failed to install sound pack:', error)
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('fs:readFile', async (event, filePath) => {
+    try {
+      return await fs.readFile(filePath)
+    } catch (error) {
+      console.error('Failed to read file:', error)
+      return null
     }
   })
 

@@ -9,7 +9,8 @@ const api = {
   saveFile: (defaultPath) => ipcRenderer.invoke('dialog:saveFile', defaultPath),
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   writeFile: (filePath, data) => ipcRenderer.invoke('fs:writeFile', filePath, data),
-  getAudioPath: () => ipcRenderer.invoke('app:getAudioPath')
+  getAudioPath: () => ipcRenderer.invoke('app:getAudioPath'),
+  installSoundPack: () => ipcRenderer.invoke('app:installSoundPack')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
