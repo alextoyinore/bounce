@@ -391,24 +391,28 @@ function init() {
       }
     });
 
-    // Auto-load default samples
+    // Auto-load all folders from the audio directory
     setTimeout(async () => {
       try {
-        let defaultPath
-        if (window.location.href.includes('index.html')) {
-          defaultPath = window.location.pathname.replace('index.html', 'audio')
-        } else {
-          // In dev mode or when running via localhost
-          defaultPath = await window.api.getAudioPath()
+        const audioBase = await window.api.getAudioPath()
+        const entries = await window.api.readDirectory(audioBase)
+
+        if (!entries || entries.length === 0) {
+          console.warn('[Browser] Audio directory is empty:', audioBase)
+          return
         }
-        
-        // Ensure path ends without trailing slash before joining
-        const starterPackPath = defaultPath.endsWith('/') || defaultPath.endsWith('\\') 
-          ? `${defaultPath}Starter Pack` 
-          : `${defaultPath}/Starter Pack`
-          
-        buildBrowserTree(browserContainer, 'Starter Pack', starterPackPath, false)
-      } catch (e) { console.warn("Could not auto-load samples", e) }
+
+        // Load every subdirectory as a non-removable browser tree
+        const folders = entries.filter(e => e.type === 'directory')
+        if (folders.length === 0) {
+          console.warn('[Browser] No folders found in audio directory:', audioBase)
+          return
+        }
+
+        for (const folder of folders) {
+          buildBrowserTree(browserContainer, folder.name, folder.path, false)
+        }
+      } catch (e) { console.warn('[Browser] Could not auto-load audio folders:', e) }
     }, 500)
 
     const gridSnapSelect = document.getElementById('grid-snap-select')

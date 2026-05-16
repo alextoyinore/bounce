@@ -471,8 +471,17 @@ aside {
 }
 
 .browser-list-container::-webkit-scrollbar-thumb {
-  background: var(--border-highlight);
+  background: transparent;
   border-radius: 2px;
+  transition: background 0.2s ease;
+}
+
+.browser-list-container:hover::-webkit-scrollbar-thumb {
+  background: var(--border-highlight);
+}
+
+.browser-list-container:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }
 
 .browser-accordion {
