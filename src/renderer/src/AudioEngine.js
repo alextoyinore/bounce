@@ -18,6 +18,10 @@ class Track {
     this.analyserNode = this.ctx.createAnalyser();
     this.analyserNode.fftSize = 256;
     
+    // Effects chain
+    this.effects = [];
+    this.inputNode = this.ctx.createGain(); // Sources connect here
+    
     // State
     this.baseVolume = 0.8;
     this.isMuted = false;
@@ -31,9 +35,40 @@ class Track {
     // Default values
     this.gainNode.gain.value = this.baseVolume; // default 80%
     
-    // Routing: Track -> Analyser -> Master
+    // Initial routing
+    this.rebuildChain(masterNode);
+  }
+
+  rebuildChain(masterNode) {
+    this.inputNode.disconnect();
+    this.effects.forEach(fx => { if (fx.node) fx.node.disconnect(); });
+    this.analyserNode.disconnect();
+    
+    let lastNode = this.inputNode;
+    this.effects.forEach(fx => {
+      if (fx.node) {
+        lastNode.connect(fx.node);
+        lastNode = fx.node;
+      }
+    });
+    
+    lastNode.connect(this.analyserNode);
     this.analyserNode.connect(this.gainNode);
-    this.gainNode.connect(masterNode);
+    if (masterNode) this.gainNode.connect(masterNode);
+  }
+
+  addEffect(type) {
+    let node;
+    if (type === 'reverb') node = this.ctx.createGain(); 
+    else if (type === 'delay') { node = this.ctx.createDelay(); node.delayTime.value = 0.3; }
+    else if (type === 'distortion') node = this.ctx.createWaveShaper();
+    else if (type === 'eq') { node = this.ctx.createBiquadFilter(); node.type = 'peaking'; }
+    else node = this.ctx.createGain();
+    
+    const fxObj = { id: Math.random().toString(36).substr(2, 9), type, node };
+    this.effects.push(fxObj);
+    this.rebuildChain();
+    return fxObj;
   }
 
   setVolume(value) {
@@ -196,7 +231,7 @@ class AudioEngine {
     source.buffer = track.instrumentBuffer;
     source.playbackRate.value = rate;
     
-    source.connect(track.gainNode);
+    source.connect(track.inputNode);
     source.start(time);
     if (duration > 0) {
       // simple hard stop (could click, but good enough for a basic sampler)

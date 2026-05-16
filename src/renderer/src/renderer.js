@@ -735,6 +735,31 @@ function init() {
       trackUIMap[trackId].mixers.push({ mBtn: mBtnM, sBtn: sBtnM, nameEl: nameElM, channelEl: channel, faderEl, faderTrackEl, dbLabel })
       trackUIMap[trackId].seqRows.push(seqRow)
 
+      // Generate step sequencer grid for THIS track only
+      const stepCountSelect = document.getElementById('step-count-select')
+      const stepCount = stepCountSelect ? parseInt(stepCountSelect.value) : 16
+      const seqStepsContainer = seqRow.querySelector('.seq-steps')
+      buildStepRows(stepCount, seqStepsContainer)
+
+      // Click to select track
+      const selectTrack = () => {
+        currentTrackId = trackId
+        document.querySelectorAll('.track-header, .mixer-channel, .seq-row').forEach(el => el.classList.remove('selected'))
+        header.classList.add('selected')
+        channel.classList.add('selected')
+        seqRow.classList.add('selected')
+        
+        // Sync Piano Roll
+        const prSelect = document.getElementById('pr-track-select')
+        if (prSelect) {
+          prSelect.value = trackId
+          prSelect.dispatchEvent(new Event('change'))
+        }
+      }
+      header.addEventListener('mousedown', selectTrack)
+      channel.addEventListener('mousedown', selectTrack)
+      seqRow.addEventListener('mousedown', selectTrack)
+
       // Remove Track Logic
       header.querySelector('.remove-track-btn').addEventListener('click', (e) => {
         e.stopPropagation();
@@ -908,8 +933,6 @@ function init() {
       rBtnH.addEventListener('click', () => { const isArmed = engine.toggleRecord(trackId); syncTrackUI(trackId, 'record', isArmed) })
 
       // Generate step sequencer grid for this row
-      const stepCount = parseInt(document.getElementById('step-count-select').value)
-      buildStepRows(stepCount)
 
       // Initial color trigger
       colorPicker.dispatchEvent(new Event('input'))
@@ -1176,15 +1199,21 @@ function init() {
       })
     }
 
-    function buildStepRows(count) {
-      document.querySelectorAll('.seq-steps').forEach(container => {
+    function buildStepRows(count, targetContainer = null) {
+      const containers = targetContainer ? [targetContainer] : document.querySelectorAll('.seq-steps')
+      containers.forEach(container => {
         const note = container.dataset.note || null
         const trackId = container.dataset.instrument || 'drums'
         container.innerHTML = ''
+        const trackNotes = sequencer.patterns[trackId] || []
         for (let i = 0; i < count; i++) {
           const step = document.createElement('div')
           step.className = 'seq-step'
           step.dataset.stepIndex = i
+          
+          const isActive = trackNotes.some(n => n.note === note && n.step === i)
+          if (isActive) step.classList.add('active')
+
           step.style.width = `${getPrStepPx()}px`
           step.addEventListener('click', () => {
             step.classList.toggle('active')
@@ -1872,6 +1901,161 @@ function init() {
     document.getElementById('footer-collapse-btn')?.addEventListener('click', () => {
       document.getElementById('app').classList.toggle('footer-collapsed')
     })
+
+    // ── Browser Tab Switching ────────────────────────────────────
+    const browserTabs = document.querySelectorAll('.browser-tab')
+    const browserTabContents = document.querySelectorAll('.browser-tab-content')
+
+    browserTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.tab
+        
+        // Update active tab
+        browserTabs.forEach(t => t.classList.remove('active'))
+        tab.classList.add('active')
+        
+        // Update active content
+        browserTabContents.forEach(content => {
+          content.classList.remove('active')
+          if (content.id === `browser-${target}-tab`) {
+            content.classList.add('active')
+          }
+        })
+      })
+    })
+
+    // ── Populate Effects & Generators ────────────────────────────
+    const effects = [
+      { id: 'reverb', name: 'Reverb', icon: '🌊' },
+      { id: 'delay', name: 'Delay', icon: '⏳' },
+      { id: 'distortion', name: 'Distortion', icon: '🔥' },
+      { id: 'compressor', name: 'Compressor', icon: '🗜️' },
+      { id: 'eq', name: 'Equalizer', icon: '🎚️' }
+    ]
+
+    const generators = [
+      { id: 'sampler', name: 'Sampler', icon: '📼' },
+      { id: 'monosynth', name: 'Mono Synth', icon: '🎹' },
+      { id: 'polysynth', name: 'Poly Synth', icon: '🎼' },
+      { id: 'fmsynth', name: 'FM Synth', icon: '📻' }
+    ]
+
+    const effectsContainer = document.getElementById('effects-container')
+    const generatorsContainer = document.getElementById('generators-container')
+
+    // ── Plugin Window Logic ──────────────────────────────────────
+    function showPluginWindow(item, type) {
+      const host = document.getElementById('plugin-host')
+      if (!host) return
+
+      const winId = `plugin-${Math.random().toString(36).substr(2, 9)}`
+      const win = document.createElement('div')
+      win.className = 'plugin-window'
+      win.id = winId
+      win.style.left = '50%'
+      win.style.top = '50%'
+
+      const header = document.createElement('div')
+      header.className = 'plugin-header'
+      header.innerHTML = `
+        <div class="plugin-title">
+          <span>${item.icon}</span>
+          <span>${item.name.toUpperCase()}</span>
+        </div>
+        <button class="plugin-close">✕</button>
+      `
+      
+      const content = document.createElement('div')
+      content.className = 'plugin-content'
+      
+      // Generate some dummy params
+      const params = [
+        { label: 'Mix', value: '50%' },
+        { label: 'Tone', value: '75%' },
+        { label: 'Gain', value: '0dB' }
+      ]
+
+      params.forEach(p => {
+        const param = document.createElement('div')
+        param.className = 'plugin-param'
+        param.innerHTML = `
+          <div class="plugin-knob"></div>
+          <div class="plugin-label">${p.label}</div>
+          <div class="plugin-value">${p.value}</div>
+        `
+        content.appendChild(param)
+      })
+
+      win.appendChild(header)
+      win.appendChild(content)
+      host.appendChild(win)
+
+      // Close logic
+      win.querySelector('.plugin-close').addEventListener('click', () => win.remove())
+
+      // Drag logic
+      let isDragging = false
+      let startX, startY, startLeft, startTop
+
+      header.addEventListener('mousedown', (e) => {
+        isDragging = true
+        startX = e.clientX
+        startY = e.clientY
+        const rect = win.getBoundingClientRect()
+        startLeft = rect.left
+        startTop = rect.top
+        win.style.transform = 'none' // Disable centering transform once dragged
+        win.style.left = `${startLeft}px`
+        win.style.top = `${startTop}px`
+      })
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return
+        const dx = e.clientX - startX
+        const dy = e.clientY - startY
+        win.style.left = `${startLeft + dx}px`
+        win.style.top = `${startTop + dy}px`
+      })
+
+      document.addEventListener('mouseup', () => {
+        isDragging = false
+      })
+    }
+
+    function populateList(container, items, type) {
+      if (!container) return;
+      container.innerHTML = ''
+      const list = document.createElement('ul')
+      list.className = 'browser-accordion'
+      
+      items.forEach(item => {
+        const li = document.createElement('li')
+        li.className = 'browser-item'
+        li.innerHTML = `
+          <span style="font-size: 1rem; margin-right: 4px;">${item.icon}</span>
+          <span class="browser-item-name">${item.name}</span>
+        `
+        li.addEventListener('click', () => {
+          showPluginWindow(item, type)
+          
+          const currentTrack = engine.getTrack(currentTrackId)
+          if (currentTrack) {
+            if (type === 'effects') {
+              currentTrack.addEffect(item.id)
+              console.log(`Added ${item.name} to ${currentTrackId}`)
+            } else if (type === 'generators') {
+              console.log(`Switching ${currentTrackId} to ${item.name} mode`)
+              // In a real implementation, we'd change the sound source here
+            }
+          }
+        })
+        list.appendChild(li)
+      })
+      container.appendChild(list)
+    }
+
+    populateList(effectsContainer, effects, 'effects')
+    populateList(generatorsContainer, generators, 'generators')
   })
 }
 
