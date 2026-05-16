@@ -19,6 +19,8 @@
 
   --radius: 4px;
   --transition: all 0.15s ease-out;
+  --pr-key-height: 24px;
+  --pr-ruler-height: 40px;
 }
 
 * {
@@ -1009,8 +1011,6 @@ footer {
   width: 100px;
   /* Narrower for modern look */
   background: var(--bg-color);
-  border-right: 1px solid var(--border-color);
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   z-index: 10;
@@ -1083,7 +1083,6 @@ footer {
 
 .piano-grid {
   flex-grow: 1;
-  overflow: auto;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1091,7 +1090,7 @@ footer {
 }
 
 .pr-ruler {
-  height: 40px;
+  height: var(--pr-ruler-height);
   background: var(--surface-hover);
   border-bottom: 1px solid var(--border-color);
   position: sticky;
@@ -1152,10 +1151,10 @@ footer {
 
 .pr-note {
   position: absolute;
-  height: 20px;
+  top: 1px;
+  bottom: 1px;
   background: var(--accent-color);
   border-radius: 2px;
-  top: 1px;
   box-sizing: border-box;
   border: 1px solid rgba(0, 0, 0, 0.3);
   cursor: grab;

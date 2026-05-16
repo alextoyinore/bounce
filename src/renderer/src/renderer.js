@@ -234,13 +234,22 @@ function init() {
     });
 
     // Auto-load default samples
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
-        const defaultPath = window.location.href.includes('index.html') 
-          ? window.location.pathname.replace('index.html', 'audio')
-          : '/home/lexxy/Documents/projects/bounce/src/renderer/public/audio'
+        let defaultPath
+        if (window.location.href.includes('index.html')) {
+          defaultPath = window.location.pathname.replace('index.html', 'audio')
+        } else {
+          // In dev mode or when running via localhost
+          defaultPath = await window.api.getAudioPath()
+        }
         
-        buildBrowserTree(browserContainer, 'Starter Pack', `${defaultPath}/Starter Pack`, false)
+        // Ensure path ends without trailing slash before joining
+        const starterPackPath = defaultPath.endsWith('/') || defaultPath.endsWith('\\') 
+          ? `${defaultPath}Starter Pack` 
+          : `${defaultPath}/Starter Pack`
+          
+        buildBrowserTree(browserContainer, 'Starter Pack', starterPackPath, false)
       } catch (e) { console.warn("Could not auto-load samples", e) }
     }, 500)
 
@@ -1328,6 +1337,7 @@ function init() {
     const pianoGrid = document.getElementById('piano-grid')
     const prTrackSelect = document.getElementById('pr-track-select')
     
+    let lastPrNoteDuration = 1; 
     let prDragState = null; // { type: 'move'|'resize'|'paint', noteElement, startX, startY, startStep, startDur, originalNoteObj, trackId }
     
     function createPrNote(trackId, noteName, stepIndex, durationSteps, color) {
@@ -1420,7 +1430,7 @@ function init() {
           const map = trackUIMap[currentTrackId]
           const color = map && map.headers[0] ? map.headers[0].laneEl.style.getPropertyValue('--track-color') : null
           
-          const note = createPrNote(currentTrackId, noteName, step, 1, color)
+          const note = createPrNote(currentTrackId, noteName, step, lastPrNoteDuration, color)
           row.appendChild(note)
           
           prDragState = {
@@ -1429,7 +1439,7 @@ function init() {
             startX: e.clientX,
             startY: e.clientY,
             startStep: step,
-            startDur: 1,
+            startDur: lastPrNoteDuration,
             noteName: noteName,
             trackId: currentTrackId,
             isClone: false,
@@ -1520,6 +1530,7 @@ function init() {
           }
           
           syncPatternClip(prDragState.trackId);
+          lastPrNoteDuration = finalDur; // Remember for next note
           prDragState = null;
         }
       });
@@ -1845,7 +1856,7 @@ function buildPianoRoll() {
   const grid = document.getElementById('piano-grid')
   if (!keysContainer || !grid) return
 
-  const KEY_HEIGHT = 22
+  const KEY_HEIGHT = 24
   const NOTES_DESC = ['B','A#','A','G#','G','F#','F','E','D#','D','C#','C']
   const BLACK = new Set(['A#','C#','D#','F#','G#'])
   const OCTAVES = [6,5,4,3,2]

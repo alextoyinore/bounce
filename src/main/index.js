@@ -127,6 +127,14 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('app:getAudioPath', () => {
+    if (is.dev) {
+      return join(app.getAppPath(), 'src', 'renderer', 'public', 'audio')
+    } else {
+      return join(app.getAppPath(), 'out', 'renderer', 'audio')
+    }
+  })
+
   ipcMain.handle('dialog:saveFile', async (event, defaultPath) => {
     const { canceled, filePath } = await dialog.showSaveDialog({
       title: 'Save Bounce Project',
