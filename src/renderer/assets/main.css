@@ -616,7 +616,8 @@ main {
 .sequencer-container {
   display: flex;
   height: 100%;
-  overflow-y: auto;
+  overflow: auto;
+  align-items: flex-start;
 }
 
 .track-headers {
@@ -629,6 +630,7 @@ main {
   position: sticky;
   left: 0;
   z-index: 3;
+  min-height: 100%;
 }
 
 
@@ -746,10 +748,9 @@ main {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  overflow-y: hidden;
-  /* Vertical scroll handled by parent */
-  overflow-x: auto;
+  overflow: visible;
   position: relative;
+  min-height: 100%;
   background-image:
     linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
@@ -800,7 +801,6 @@ main {
   position: relative;
   min-width: 5000px;
   /* Ensure horizontal scroll is possible */
-  min-height: 100%;
 }
 
 .playhead {
