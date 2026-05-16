@@ -67,15 +67,15 @@ header {
 }
 
 .logo-text {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.15em;
   color: var(--text-primary);
 }
 
 .menu-items {
   display: flex;
-  gap: 8px;
+  gap: 0;
   font-size: 0.8rem;
   color: var(--text-secondary);
 }
@@ -139,16 +139,15 @@ header {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-color);
+  background: transparent;
   padding: 4px 8px;
   border-radius: var(--radius);
-  border: 1px solid var(--border-color);
 }
 
 .transport-btn {
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: var(--accent-color);
   font-size: 1.25rem;
   width: 32px;
   height: 32px;
@@ -165,12 +164,27 @@ header {
   color: var(--text-primary);
 }
 
-.transport-btn.play:hover {
-  color: #00ff88;
+.btn.toggle-view.active {
+  background: transparent !important;
+  color: var(--accent-color) !important;
+  border-color: var(--accent-color) !important;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+  box-shadow: none !important;
 }
 
-.transport-btn.record:hover {
-  color: var(--record-color);
+.selection-marquee {
+  position: absolute;
+  background: rgba(0, 229, 255, 0.1);
+  border: 1px solid var(--accent-color);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.clip.selected,
+.pr-note.selected {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+  box-shadow: 0 0 12px var(--accent-color);
 }
 
 .lcd-display {
@@ -254,13 +268,15 @@ select.lcd-value option {
 .win-btn:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
-  width: 46px; /* Explicitly keep width */
+  width: 46px;
+  /* Explicitly keep width */
 }
 
 .win-btn.close:hover {
   background: #ff3366;
   color: #fff;
-  width: 46px; /* Explicitly keep width */
+  width: 46px;
+  /* Explicitly keep width */
 }
 
 .btn {
@@ -274,10 +290,27 @@ select.lcd-value option {
   cursor: pointer;
 }
 
-.btn-primary {
-  background: var(--accent-color);
+.btn-primary,
+.btn.toggle-view.active {
+  background: transparent;
   border-color: var(--accent-color);
-  color: #000;
+  color: var(--accent-color);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+}
+
+.project-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  margin-left: 12px;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Make interactive elements in header non-draggable */
@@ -299,10 +332,12 @@ aside {
   background-color: var(--surface-color);
   border-right: 1px solid var(--border-color);
   display: flex;
-  flex-direction: row; /* Tabs on left, content on right */
+  flex-direction: row;
+  /* Tabs on left, content on right */
   overflow: hidden;
   height: 100%;
-  padding: 0; /* Remove padding to let tabs hug the wall */
+  padding: 0;
+  /* Remove padding to let tabs hug the wall */
 }
 
 .browser-main-content {
@@ -322,6 +357,23 @@ aside {
   margin-bottom: 12px;
 }
 
+.panel-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.panel-title svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-color);
+}
+
 /* ======== BROWSER TABS (VERTICAL) ======== */
 .browser-tabs {
   display: flex;
@@ -330,13 +382,12 @@ aside {
   background: var(--bg-color);
   padding: 8px 4px;
   border-right: 1px solid var(--border-color);
-  width: 48px; /* Compact vertical tabs */
+  width: 48px;
+  /* Compact vertical tabs */
   flex-shrink: 0;
 }
-
 .browser-tab {
   width: 100%;
-  aspect-ratio: 1;
   background: transparent;
   border: none;
   color: var(--text-secondary);
@@ -351,7 +402,8 @@ aside {
   align-items: center;
   justify-content: center;
   text-align: center;
-  writing-mode: vertical-rl; /* Vertical text */
+  writing-mode: vertical-rl;
+  /* Vertical text */
   transform: rotate(180deg);
   letter-spacing: 0.1em;
 }
@@ -362,9 +414,10 @@ aside {
 }
 
 .browser-tab.active {
-  background: var(--surface-color);
-  color: var(--accent-color);
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+  background: transparent !important;
+  color: var(--accent-color) !important;
+  box-shadow: none !important;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
 }
 
 .browser-tab-content {
@@ -563,6 +616,7 @@ main {
   flex-direction: column;
   justify-content: space-between;
   background: var(--surface-color);
+  flex-shrink: 0;
 }
 
 .track-info {
@@ -633,7 +687,7 @@ main {
   position: relative;
   cursor: ns-resize;
   margin-left: 8px;
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.3);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
   transition: border-color 0.15s;
 }
 
@@ -740,6 +794,7 @@ main {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   position: relative;
   background: linear-gradient(90deg, color-mix(in srgb, var(--track-color, transparent) 10%, transparent), transparent 100px);
+  flex-shrink: 0;
 }
 
 .clip {
@@ -1487,6 +1542,7 @@ footer {
   cursor: grabbing;
   z-index: 10;
 }
+
 /* ======== PLUGIN WINDOWS (POPUP UI) ======== */
 .plugin-window {
   position: fixed;
@@ -1561,7 +1617,7 @@ footer {
   border-radius: 50%;
   position: relative;
   cursor: ns-resize;
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .plugin-knob::after {
@@ -1589,7 +1645,8 @@ footer {
   font-family: 'JetBrains Mono', monospace;
 }
 
-.track-header.selected, .mixer-channel.selected {
+.track-header.selected,
+.mixer-channel.selected {
   background: var(--surface-hover) !important;
   border-color: var(--accent-color) !important;
   box-shadow: inset 0 0 10px rgba(0, 229, 255, 0.1);
