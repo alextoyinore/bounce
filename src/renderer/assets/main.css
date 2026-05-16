@@ -195,7 +195,9 @@ header {
   border: 1px solid var(--border-color);
   border-radius: var(--radius);
   padding: 6px 12px;
+  height: calc(var(--header-height) - 12px);
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
 }
 
 .lcd-section {
@@ -255,28 +257,31 @@ select.lcd-value option {
   color: var(--text-secondary);
   width: 46px;
   height: var(--header-height);
+  min-width: 46px;
+  min-height: var(--header-height);
+  max-width: 46px;
+  max-height: var(--header-height);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: var(--transition);
+  transition: background 0.15s ease-out, color 0.15s ease-out;
   font-size: 1rem;
   padding: 0;
   flex-shrink: 0;
+  transform: none;
 }
 
 .win-btn:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
-  width: 46px;
-  /* Explicitly keep width */
+  transform: none;
 }
 
 .win-btn.close:hover {
   background: #ff3366;
   color: #fff;
-  width: 46px;
-  /* Explicitly keep width */
+  transform: none;
 }
 
 .btn {
@@ -337,7 +342,26 @@ aside {
   overflow: hidden;
   height: 100%;
   padding: 0;
+  position: relative;
   /* Remove padding to let tabs hug the wall */
+}
+
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+  background: transparent;
+  transition: background 0.15s ease-out;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer.dragging {
+  background: var(--accent-color);
+  opacity: 0.4;
 }
 
 .browser-main-content {
@@ -386,6 +410,7 @@ aside {
   /* Compact vertical tabs */
   flex-shrink: 0;
 }
+
 .browser-tab {
   width: 100%;
   background: transparent;

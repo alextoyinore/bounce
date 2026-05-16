@@ -25,6 +25,42 @@ function init() {
       window.electron.ipcRenderer.send('window-close')
     })
 
+    // Sidebar resize
+    const sidebarResizer = document.getElementById('sidebar-resizer')
+    const appEl = document.getElementById('app')
+    const MIN_SIDEBAR = 160
+    const MAX_SIDEBAR = 480
+    let isSidebarResizing = false
+    let sidebarResizeStartX = 0
+    let sidebarResizeStartWidth = 0
+
+    sidebarResizer?.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      isSidebarResizing = true
+      sidebarResizeStartX = e.clientX
+      sidebarResizeStartWidth = parseInt(
+        getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'), 10
+      ) || 240
+      sidebarResizer.classList.add('dragging')
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    })
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isSidebarResizing) return
+      const delta = e.clientX - sidebarResizeStartX
+      const newWidth = Math.min(MAX_SIDEBAR, Math.max(MIN_SIDEBAR, sidebarResizeStartWidth + delta))
+      document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`)
+    })
+
+    document.addEventListener('mouseup', () => {
+      if (!isSidebarResizing) return
+      isSidebarResizing = false
+      sidebarResizer.classList.remove('dragging')
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    })
+
     // Custom Menus
     const menuContainers = document.querySelectorAll('.menu-item-container')
     
