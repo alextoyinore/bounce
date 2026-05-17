@@ -608,7 +608,8 @@ function init() {
               const seqClip = {
                 buffer: audioBuffer,
                 startTime: timeInSeconds,
-                duration: audioBuffer.duration,
+                duration: musicalDuration,
+                originalDuration: musicalDuration,
                 trackId: trackId,
                 scheduled: false,
                 uiElement: clip,
@@ -1396,10 +1397,36 @@ function init() {
         const deltaY = startY - e.clientY
         let newBPM = startBPM + deltaY * 0.5
         newBPM = Math.max(20, Math.min(999, newBPM))
+        
+        const oldBPM = sequencer.bpm
+        const ratio = oldBPM / newBPM
+        
         sequencer.bpm = newBPM
         bpmDisplay.textContent = newBPM.toFixed(1)
         drawTimeline()
         if (typeof drawPianoRollTimeline === 'function') drawPianoRollTimeline()
+        
+        // Scale all clips to stay locked to their musical grid positions
+        const scaleClip = (c) => {
+          c.startTime *= ratio
+          c.duration *= ratio
+          if (c.originalDuration !== undefined) c.originalDuration *= ratio
+          
+          if (c.uiElement) {
+            c.uiElement.dataset.startTime = c.startTime
+            c.uiElement.dataset.duration = c.duration
+            c.uiElement.style.left = `${c.startTime * sequencer.pxPerSecond}px`
+            c.uiElement.style.width = `${Math.max(20, c.duration * sequencer.pxPerSecond)}px`
+          }
+        }
+        
+        sequencer.clips.forEach(scaleClip)
+        sequencer.patternClips.forEach(scaleClip)
+
+        // Reschedule if playing so tempo change takes effect immediately
+        if (sequencer.isPlaying) {
+          sequencer.rescheduleAtTempo(ratio)
+        }
       })
       
       document.addEventListener('mouseup', () => {
@@ -2066,6 +2093,7 @@ function init() {
         trackId: c.trackId,
         startTime: c.startTime,
         duration: c.duration,
+        originalDuration: c.originalDuration || c.duration,
         filePath: c._filePath || null,
         fileName: c._fileName || ''
       }))
@@ -2101,7 +2129,10 @@ function init() {
       const ok = await window.api.writeFile(path, data)
       if (ok) {
         currentProjectPath = path
-        document.title = `Bounce — ${path.split(/[\\/]/).pop()}`
+        const fileName = path.split(/[\\/]/).pop()
+        document.title = `Bounce — ${fileName}`
+        const titleEl = document.getElementById('project-title')
+        if (titleEl) titleEl.textContent = fileName
       } else {
         alert('Save failed.')
       }
@@ -2224,7 +2255,7 @@ function init() {
             rh.className = 'resize-handle'
             clipEl.appendChild(rh)
             lane.appendChild(clipEl)
-            sequencer.addClip({ buffer: audioBuffer, startTime: c.startTime, duration: c.duration, trackId: c.trackId, scheduled: false, uiElement: clipEl, _filePath: c.filePath, _fileName: c.fileName })
+            sequencer.addClip({ buffer: audioBuffer, startTime: c.startTime, duration: c.duration, originalDuration: c.originalDuration || c.duration, trackId: c.trackId, scheduled: false, uiElement: clipEl, _filePath: c.filePath, _fileName: c.fileName })
           } catch (err) { console.warn('Could not restore clip:', err) }
         }
       }

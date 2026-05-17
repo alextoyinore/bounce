@@ -26,6 +26,39 @@ export class Sequencer {
     return this.pxPerSecond;
   }
 
+  /**
+   * Call after BPM changes while playing.
+   * Stops all currently running audio and re-schedules from the current
+   * playhead position so the new tempo is heard immediately.
+   */
+  rescheduleAtTempo(ratio = 1) {
+    if (!this.isPlaying) return;
+
+    // Capture current playhead position and scale it
+    const currentPlayTime = (engine.ctx.currentTime - this.startTime) * ratio;
+
+    // Stop all scheduled audio clips
+    this.clips.forEach(clip => {
+      if (clip.sourceNode) {
+        try { clip.sourceNode.stop(); } catch(e){}
+        clip.sourceNode = null;
+      }
+      clip.scheduled = false;
+    });
+
+    // Stop all pattern notes
+    for (const trackId in this.patterns) {
+      this.patterns[trackId].forEach(n => {
+        if (n.sourceNode) { try { n.sourceNode.stop(); } catch(e){} n.sourceNode = null; }
+        n.scheduled = false;
+        if (n._scheduledAt) n._scheduledAt.clear();
+      });
+    }
+
+    // Re-anchor start time to keep playhead at same musical position
+    this.startTime = engine.ctx.currentTime - currentPlayTime;
+  }
+
   setGridSnap(bars) {
     if (bars === 0) {
       this.gridSnapInBeats = 0;
@@ -206,11 +239,27 @@ export class Sequencer {
         clip.scheduled = true;
         const source = engine.ctx.createBufferSource();
         source.buffer = clip.buffer;
+
+        // --- Tempo sync: if the clip has a bpmAtCapture, adjust playbackRate ---
+        // The clip's musicalDuration (bar-snapped) tells us how long it should
+        // take at the current BPM.  If it differs from the raw buffer length,
+        // speed up / slow down proportionally.
+        const rawDuration = clip.buffer.duration;
+        const originalMusicalDuration = clip.originalDuration || clip.duration;
+        if (originalMusicalDuration > 0 && Math.abs(rawDuration - originalMusicalDuration) > 0.01) {
+          // Stretch: play the buffer faster/slower to fit the musical duration
+          source.playbackRate.value = rawDuration / originalMusicalDuration;
+        }
+
         const track = engine.getTrack(clip.trackId);
         if (track) {
           source.connect(track.gainNode);
           const exactTime = this.startTime + clip.startTime;
-          source.start(exactTime);
+          // Only play the trimmed portion of the buffer
+          const playDuration = clip.duration;
+          source.start(exactTime, 0, rawDuration * (source.playbackRate.value || 1) > 0
+            ? playDuration * (source.playbackRate.value || 1)
+            : undefined);
           clip.sourceNode = source;
           source.onended = () => { clip.sourceNode = null; };
         }
