@@ -20,25 +20,25 @@
           <div class="menu-item-container">
             <span class="menu-label">File</span>
             <div class="dropdown-menu">
-              <div class="dropdown-item" id="menu-new">New Project</div>
-              <div class="dropdown-item" id="menu-open">Open Project...</div>
-              <div class="dropdown-item" id="menu-save">Save</div>
+              <div class="dropdown-item" id="menu-new">New Project <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+N</span></div>
+              <div class="dropdown-item" id="menu-open">Open Project... <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+O</span></div>
+              <div class="dropdown-item" id="menu-save">Save <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+S</span></div>
               <div class="dropdown-item" id="menu-saveas">Save As...</div>
               <div class="dropdown-divider"></div>
               <div class="dropdown-item" id="menu-install-pack">Install Sound Pack...</div>
               <div class="dropdown-divider"></div>
-              <div class="dropdown-item" id="menu-exit">Exit</div>
+              <div class="dropdown-item" id="menu-exit">Exit <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+Shift+X</span></div>
             </div>
           </div>
           <div class="menu-item-container">
             <span class="menu-label">Edit</span>
             <div class="dropdown-menu">
-              <div class="dropdown-item">Undo</div>
-              <div class="dropdown-item">Redo</div>
+              <div class="dropdown-item" id="menu-undo">Undo <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+Z</span></div>
+              <div class="dropdown-item" id="menu-redo">Redo <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+Y</span></div>
               <div class="dropdown-divider"></div>
-              <div class="dropdown-item">Cut</div>
-              <div class="dropdown-item">Copy</div>
-              <div class="dropdown-item">Paste</div>
+              <div class="dropdown-item" id="menu-cut">Cut <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+X</span></div>
+              <div class="dropdown-item" id="menu-copy">Copy <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+C</span></div>
+              <div class="dropdown-item" id="menu-paste">Paste <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+V</span></div>
             </div>
           </div>
           <div class="menu-item-container">
@@ -195,6 +195,7 @@
         <button class="btn btn-primary toggle-view" data-target="mixer-view">Mixer</button>
         <button class="btn toggle-view" data-target="piano-roll-view">Piano Roll</button>
         <button class="btn toggle-view" data-target="step-sequencer-view">Step Seq</button>
+        <button class="btn toggle-view" data-target="plugins-view">Active Plugins</button>
         <button class="footer-collapse-btn" id="footer-collapse-btn" title="Collapse panel">
           <svg id="collapse-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
             viewBox="0 0 256 256">
@@ -271,6 +272,12 @@
           </select>
         </div>
         <div id="seq-rows-container"></div>
+      </div>
+
+      <div id="plugins-view" class="footer-panel editor-panel" style="padding: 16px; overflow-y: auto;">
+        <div id="active-plugins-list" style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <!-- Active plugins will be listed here -->
+        </div>
       </div>
     </footer>
   </div>

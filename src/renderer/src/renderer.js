@@ -9,10 +9,118 @@ function init() {
     let currentProjectPath = null
     let currentTrackId = 'kick' // Initialize with a default
     
+    // ── Toast Notification System ──────────────────────────────────
+    function showToast(message) {
+      let toast = document.querySelector('.daw-toast')
+      if (!toast) {
+        toast = document.createElement('div')
+        toast.className = 'daw-toast'
+        document.body.appendChild(toast)
+      }
+      toast.textContent = message
+      toast.classList.add('show')
+      
+      if (toast._timeout) clearTimeout(toast._timeout)
+      toast._timeout = setTimeout(() => {
+        toast.classList.remove('show')
+      }, 2000)
+    }
+
+    // ── Central HUD Notification System ─────────────────────────────
+    function showHudFeedback(icon, text) {
+      let hud = document.querySelector('.daw-hud')
+      if (!hud) {
+        hud = document.createElement('div')
+        hud.className = 'daw-hud'
+        hud.innerHTML = `
+          <div class="daw-hud-icon"></div>
+          <div class="daw-hud-text"></div>
+        `
+        document.body.appendChild(hud)
+      }
+      hud.querySelector('.daw-hud-icon').textContent = icon
+      hud.querySelector('.daw-hud-text').textContent = text
+      hud.classList.add('show')
+      
+      if (hud._timeout) clearTimeout(hud._timeout)
+      hud._timeout = setTimeout(() => {
+        hud.classList.remove('show')
+      }, 800)
+    }
+
+    // ── History Manager (Memento Pattern) ──────────────────────────
+    let isRestoringHistory = false
+
+    const dawHistory = {
+      undoStack: [],
+      redoStack: [],
+      maxStates: 50,
+      
+      pushState(actionName) {
+        if (isRestoringHistory) return
+        const state = serializeProject()
+        if (this.undoStack.length > 0 && this.undoStack[this.undoStack.length - 1].state === state) return
+        
+        this.undoStack.push({ actionName, state })
+        if (this.undoStack.length > this.maxStates) this.undoStack.shift()
+        this.redoStack = []
+        console.log(`[History] Pushed state: "${actionName}"`)
+      },
+      
+      async undo() {
+        if (this.undoStack.length === 0) {
+          showToast("Nothing to Undo")
+          showHudFeedback("↩️", "Nothing to Undo")
+          return
+        }
+        const current = serializeProject()
+        const previous = this.undoStack.pop()
+        this.redoStack.push({ actionName: previous.actionName, state: current })
+        
+        try {
+          isRestoringHistory = true
+          const data = JSON.parse(previous.state)
+          await loadProject(data)
+          isRestoringHistory = false
+          showToast(`Undo: ${previous.actionName}`)
+          showHudFeedback("↩️", `Undo: ${previous.actionName}`)
+        } catch(e) {
+          isRestoringHistory = false
+          console.error("Undo failed:", e)
+        }
+      },
+      
+      async redo() {
+        if (this.redoStack.length === 0) {
+          showToast("Nothing to Redo")
+          showHudFeedback("↪️", "Nothing to Redo")
+          return
+        }
+        const next = this.redoStack.pop()
+        const current = serializeProject()
+        this.undoStack.push({ actionName: next.actionName, state: current })
+        
+        try {
+          isRestoringHistory = true
+          const data = JSON.parse(next.state)
+          await loadProject(data)
+          isRestoringHistory = false
+          showToast(`Redo: ${next.actionName}`)
+          showHudFeedback("↪️", `Redo: ${next.actionName}`)
+        } catch(e) {
+          isRestoringHistory = false
+          console.error("Redo failed:", e)
+        }
+      }
+    }
+
+    window.dawHistory = dawHistory
+    
     // Selection state
     let selectedClips = new Set();
     let selectedNotes = new Set();
     let marqueeSelection = null;
+    let dawClipboard = { type: null, data: [] };
     
     // Window controls
     document.getElementById('min-btn')?.addEventListener('click', () => {
@@ -282,6 +390,237 @@ function init() {
     window.addEventListener('keydown', (e) => {
       // Don't trigger if user is typing in an input or contenteditable
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+        return;
+      }
+
+      // Save (Ctrl + S)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') {
+        e.preventDefault()
+        document.getElementById('menu-save')?.click()
+        return
+      }
+
+      // New Project (Ctrl + N)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyN') {
+        e.preventDefault()
+        document.getElementById('menu-new')?.click()
+        return
+      }
+
+      // Open Project (Ctrl + O)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyO') {
+        e.preventDefault()
+        document.getElementById('menu-open')?.click()
+        return
+      }
+
+      // Exit (Ctrl + Shift + X)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyX') {
+        e.preventDefault()
+        document.getElementById('menu-exit')?.click()
+        return
+      }
+
+      // Undo (Ctrl + Z)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
+        e.preventDefault()
+        dawHistory.undo()
+        return
+      }
+
+      // Redo (Ctrl + Y)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') {
+        e.preventDefault()
+        dawHistory.redo()
+        return
+      }
+
+      // Copy (Ctrl + C)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
+        e.preventDefault()
+        doCopy()
+        return
+      }
+
+      // Cut (Ctrl + X)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyX') {
+        e.preventDefault()
+        doCut()
+        return
+      }
+
+      // Paste (Ctrl + V)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
+        e.preventDefault()
+        doPaste()
+        return
+      }
+
+      // Delete / Backspace
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        let deletedSomething = false;
+        if (selectedNotes.size > 0) {
+          e.preventDefault();
+          const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+          selectedNotes.forEach(noteEl => {
+            const row = noteEl.closest('.pr-row');
+            if (row) {
+              const noteName = row.dataset.note;
+              const step = parseInt(noteEl.dataset.step);
+              sequencer.removeNoteFromPattern(currentTrackId, noteName, step);
+              const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${noteName}"]`);
+              if (stepSeqRow) {
+                const s = stepSeqRow.querySelector(`[data-step-index="${step}"]`);
+                if (s) s.classList.remove('active');
+              }
+            }
+            noteEl.remove();
+          });
+          selectedNotes.clear();
+          syncPatternClip(currentTrackId);
+          dawHistory.pushState('Delete Note');
+          deletedSomething = true;
+        }
+
+        if (selectedClips.size > 0) {
+          e.preventDefault();
+          selectedClips.forEach(clip => {
+            const isPattern = clip.classList.contains('pattern-clip');
+            if (isPattern) {
+              const seqClip = sequencer.patternClips.find(c => c.uiElement === clip);
+              if (seqClip) sequencer.removePatternClip(seqClip);
+            } else {
+              const seqClip = sequencer.clips.find(c => c.uiElement === clip);
+              if (seqClip) sequencer.removeClip(seqClip);
+            }
+            clip.remove();
+          });
+          selectedClips.clear();
+          dawHistory.pushState('Delete Clip');
+          deletedSomething = true;
+        }
+        if (deletedSomething) return;
+      }
+
+      // Keyboard selection movement (Piano Roll Notes)
+      if (selectedNotes.size > 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        
+        const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+        
+        const NOTES_DESC = ['B','A#','A','G#','G','F#','F','E','D#','D','C#','C'];
+        const OCTAVES = [6,5,4,3,2];
+        const ALL_NOTES_DESC = [];
+        OCTAVES.forEach(oct => {
+          NOTES_DESC.forEach(note => {
+            ALL_NOTES_DESC.push(`${note}${oct}`);
+          });
+        });
+
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          const gridSnapSelect = document.getElementById('grid-snap-select');
+          const snapInterval = gridSnapSelect ? parseFloat(gridSnapSelect.value) : 0.0625;
+          const snapSteps = Math.max(1, Math.round(snapInterval * 16));
+          const stepDelta = e.key === 'ArrowRight' ? snapSteps : -snapSteps;
+
+          const notesArray = Array.from(selectedNotes);
+          
+          notesArray.forEach(noteEl => {
+            const row = noteEl.closest('.pr-row');
+            if (row) {
+              const noteName = row.dataset.note;
+              const oldStep = parseInt(noteEl.dataset.step);
+              sequencer.removeNoteFromPattern(currentTrackId, noteName, oldStep);
+              
+              const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${noteName}"]`);
+              if (stepSeqRow) {
+                const s = stepSeqRow.querySelector(`[data-step-index="${oldStep}"]`);
+                if (s) s.classList.remove('active');
+              }
+            }
+          });
+
+          notesArray.forEach(noteEl => {
+            const row = noteEl.closest('.pr-row');
+            if (row) {
+              const noteName = row.dataset.note;
+              const oldStep = parseInt(noteEl.dataset.step);
+              const duration = parseFloat(noteEl.dataset.duration || 1);
+              const newStep = Math.max(0, oldStep + stepDelta);
+
+              noteEl.dataset.step = newStep;
+              noteEl.style.left = `${newStep * getPrStepPx() + 1}px`;
+
+              sequencer.addNoteToPattern(currentTrackId, noteName, newStep, duration);
+              
+              const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${noteName}"]`);
+              if (stepSeqRow) {
+                const s = stepSeqRow.querySelector(`[data-step-index="${newStep}"]`);
+                if (s) s.classList.add('active');
+              }
+            }
+          });
+
+          syncPatternClip(currentTrackId);
+          dawHistory.pushState("Shift Note");
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          const notesArray = Array.from(selectedNotes);
+          const grid = document.getElementById('piano-grid');
+          let previewNote = null;
+
+          notesArray.forEach(noteEl => {
+            const row = noteEl.closest('.pr-row');
+            if (row) {
+              const noteName = row.dataset.note;
+              const step = parseInt(noteEl.dataset.step);
+              sequencer.removeNoteFromPattern(currentTrackId, noteName, step);
+              
+              const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${noteName}"]`);
+              if (stepSeqRow) {
+                const s = stepSeqRow.querySelector(`[data-step-index="${step}"]`);
+                if (s) s.classList.remove('active');
+              }
+            }
+          });
+
+          notesArray.forEach(noteEl => {
+            const row = noteEl.closest('.pr-row');
+            if (row) {
+              const noteName = row.dataset.note;
+              const step = parseInt(noteEl.dataset.step);
+              const duration = parseFloat(noteEl.dataset.duration || 1);
+
+              const index = ALL_NOTES_DESC.indexOf(noteName);
+              const newIndex = e.key === 'ArrowUp' ? index - 1 : index + 1;
+
+              if (newIndex >= 0 && newIndex < ALL_NOTES_DESC.length) {
+                const newNoteName = ALL_NOTES_DESC[newIndex];
+                const newRow = grid.querySelector(`[data-note="${newNoteName}"]`);
+                if (newRow) {
+                  newRow.appendChild(noteEl);
+                  sequencer.addNoteToPattern(currentTrackId, newNoteName, step, duration);
+                  
+                  const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${newNoteName}"]`);
+                  if (stepSeqRow) {
+                    const s = stepSeqRow.querySelector(`[data-step-index="${step}"]`);
+                    if (s) s.classList.add('active');
+                  }
+                  
+                  previewNote = newNoteName;
+                }
+              } else {
+                sequencer.addNoteToPattern(currentTrackId, noteName, step, duration);
+              }
+            }
+          });
+
+          if (previewNote) {
+            engine.playNote(currentTrackId, previewNote, engine.ctx.currentTime, 0.2);
+          }
+
+          syncPatternClip(currentTrackId);
+          dawHistory.pushState("Transpose Note");
+        }
         return;
       }
 
@@ -617,6 +956,7 @@ function init() {
                 _fileName: fileInfo.name
               };
               sequencer.addClip(seqClip)
+              dawHistory.pushState('Add Clip')
             }
           }
         } catch (err) {
@@ -828,6 +1168,7 @@ function init() {
                 item.seqClip.scheduled = false;
               }
             });
+            dawHistory.pushState('Move Clip');
           } else if (clipDragState.type === 'resize' || clipDragState.type === 'paint') {
             const newDur = parseFloat(clipDragState.clip.dataset.duration);
             const sc = sequencer.clips.find(c => c.uiElement === clipDragState.clip) || 
@@ -836,6 +1177,7 @@ function init() {
               sc.duration = newDur;
               sc.scheduled = false;
             }
+            dawHistory.pushState('Resize Clip');
           }
           clipDragState = null;
         }
@@ -856,6 +1198,7 @@ function init() {
           }
           clip.remove()
           selectedClips.delete(clip);
+          dawHistory.pushState('Delete Clip');
         }
       })
     }
@@ -891,6 +1234,9 @@ function init() {
           <button class="t-btn m-btn">M</button>
           <button class="t-btn s-btn">S</button>
           <button class="t-btn r-btn"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"></path></svg></button>
+          <div class="track-pan-knob" title="Panning">
+            <div class="knob-pointer"></div>
+          </div>
           <div class="track-vol-knob" title="Volume">
             <div class="knob-pointer"></div>
           </div>
@@ -967,9 +1313,12 @@ function init() {
 
       const volKnob = header.querySelector('.track-vol-knob')
       const knobPointer = volKnob.querySelector('.knob-pointer')
+      const panKnob = header.querySelector('.track-pan-knob')
+      const panPointer = panKnob.querySelector('.knob-pointer')
+      const mixerPanKnob = channel.querySelector('.pan-knob')
 
-      trackUIMap[trackId].headers.push({ mBtn: mBtnH, sBtn: sBtnH, rBtn: rBtnH, nameEl, colorPicker, laneEl: lane, headerEl: header, volKnob, knobPointer })
-      trackUIMap[trackId].mixers.push({ mBtn: mBtnM, sBtn: sBtnM, nameEl: nameElM, channelEl: channel, faderEl, faderTrackEl, dbLabel })
+      trackUIMap[trackId].headers.push({ mBtn: mBtnH, sBtn: sBtnH, rBtn: rBtnH, nameEl, colorPicker, laneEl: lane, headerEl: header, volKnob, knobPointer, panKnob, panPointer })
+      trackUIMap[trackId].mixers.push({ mBtn: mBtnM, sBtn: sBtnM, nameEl: nameElM, channelEl: channel, faderEl, faderTrackEl, dbLabel, panKnob: mixerPanKnob })
       trackUIMap[trackId].seqRows.push(seqRow)
 
       // Generate step sequencer grid for THIS track only
@@ -997,6 +1346,87 @@ function init() {
       channel.addEventListener('mousedown', selectTrack)
       seqRow.addEventListener('mousedown', selectTrack)
 
+      // Scoped Context Menu on Track Header
+      header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        selectTrack();
+
+        // Close any existing menus
+        document.querySelectorAll('.track-context-menu').forEach(m => m.remove());
+
+        const menu = document.createElement('div');
+        menu.className = 'track-context-menu';
+        menu.innerHTML = `
+          <div class="track-context-item" id="ctx-color">▧ Change Color</div>
+          <div class="track-context-item" id="ctx-properties">⚙ Sound Properties</div>
+          <div class="track-context-item" id="ctx-rename">✎ Rename Track</div>
+          <div class="track-context-item danger" id="ctx-delete">✕ Delete Track</div>
+        `;
+
+        menu.style.left = `${e.clientX}px`;
+        menu.style.top = `${e.clientY}px`;
+        document.body.appendChild(menu);
+
+        // Bind clicks:
+        menu.querySelector('#ctx-color').addEventListener('click', () => {
+          menu.remove();
+          colorPicker.click(); // Trigger native color picker
+        });
+
+        menu.querySelector('#ctx-properties').addEventListener('click', () => {
+          menu.remove();
+          // Ensure generator is active, then show generator window
+          const tObj = engine.getTrack(trackId);
+          if (tObj) {
+            if (!tObj.generator) {
+              tObj.generator = {
+                type: 'sampler',
+                params: {
+                  attack: 0.005,
+                  decay: 0.1,
+                  sustain: 1.0,
+                  release: 0.1,
+                  cutoff: 20000,
+                  resonance: 1.0,
+                  pitch: 0
+                }
+              };
+              window.updatePluginsFooter();
+            }
+            showGeneratorWindow(trackId);
+          }
+        });
+
+        menu.querySelector('#ctx-rename').addEventListener('click', () => {
+          menu.remove();
+          setTimeout(() => {
+            nameEl.focus();
+            const range = document.createRange();
+            range.selectNodeContents(nameEl);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }, 50);
+        });
+
+        menu.querySelector('#ctx-delete').addEventListener('click', () => {
+          menu.remove();
+          header.querySelector('.remove-track-btn').click();
+        });
+
+        // Close menu on click outside
+        const closeMenu = (clickEvent) => {
+          if (!menu.contains(clickEvent.target)) {
+            menu.remove();
+            document.removeEventListener('mousedown', closeMenu);
+          }
+        };
+        setTimeout(() => {
+          document.addEventListener('mousedown', closeMenu);
+        }, 10);
+      });
+
       // Remove Track Logic
       header.querySelector('.remove-track-btn').addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1019,6 +1449,7 @@ function init() {
             if (opt) opt.remove();
           }
           delete trackUIMap[trackId];
+          dawHistory.pushState('Remove Track');
         }
       });
 
@@ -1043,6 +1474,9 @@ function init() {
           if (dbLabel) dbLabel.textContent = db === -Infinity ? '-inf' : db.toFixed(1)
         }
 
+        // Expose updateKnob on trackUIMap so we can trigger it externally
+        trackUIMap[trackId].updateKnob = updateKnob
+
         // Initial setup
         updateKnob(80)
 
@@ -1062,6 +1496,7 @@ function init() {
             isDragging = false
             document.removeEventListener('mousemove', onMouseMove)
             document.removeEventListener('mouseup', onMouseUp)
+            dawHistory.pushState('Adjust Volume')
           }
 
           document.addEventListener('mousemove', onMouseMove)
@@ -1072,6 +1507,7 @@ function init() {
           e.preventDefault()
           const delta = -e.deltaY / 10
           updateKnob(currentVal + delta)
+          dawHistory.pushState('Adjust Volume')
         }, { passive: false })
       }
 
@@ -1082,18 +1518,114 @@ function init() {
             const rect = faderTrackEl.getBoundingClientRect()
             let percentage = ((rect.bottom - moveEvent.clientY) / rect.height) * 100
             percentage = Math.max(0, Math.min(100, percentage))
-            faderEl.style.bottom = `${percentage}%`
-            const gainValue = (percentage / 100) * 1.5
-            const db = percentage === 0 ? -Infinity : 20 * Math.log10(gainValue)
-            dbLabel.textContent = db === -Infinity ? '-inf' : db.toFixed(1)
-            tracks[trackName].setVolume(gainValue)
-            engine.updateTrackVolumes()
-            if (volSlider) volSlider.value = percentage
+            if (trackUIMap[trackId].updateKnob) {
+              trackUIMap[trackId].updateKnob(percentage)
+            }
           }
-          const onMouseUp = () => { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp) }
+          const onMouseUp = () => { 
+            document.removeEventListener('mousemove', onMouseMove)
+            document.removeEventListener('mouseup', onMouseUp)
+            dawHistory.pushState('Adjust Volume')
+          }
           document.addEventListener('mousemove', onMouseMove)
           document.addEventListener('mouseup', onMouseUp)
         })
+      }
+
+      // Panning & Knob Logic
+      if (panKnob) {
+        let isDraggingPan = false
+        let startYPan = 0
+        let currentPanVal = 50 // Start at center (50%)
+
+        const updatePan = (val) => {
+          currentPanVal = Math.max(0, Math.min(100, val))
+          const rotation = (currentPanVal / 100) * 270 - 135
+          
+          // Rotate arranger pan pointer
+          if (panPointer) panPointer.style.transform = `rotate(${rotation}deg)`
+          
+          // Rotate mixer channel pan pointer
+          if (mixerPanKnob) mixerPanKnob.style.transform = `rotate(${rotation}deg)`
+          
+          const audioPanValue = (currentPanVal - 50) / 50 // Translate 0-100 to -1.0..1.0
+          const tNode = tracks[trackName]
+          if (tNode && tNode.setPan) {
+            tNode.setPan(audioPanValue)
+          }
+        }
+
+        // Expose updatePan on trackUIMap so we can trigger it externally
+        trackUIMap[trackId].updatePan = updatePan
+
+        // Initial setup (Center)
+        updatePan(50)
+
+        // Mouse drag on Arranger pan knob
+        panKnob.addEventListener('mousedown', (e) => {
+          engine.resume()
+          isDraggingPan = true
+          startYPan = e.clientY
+          
+          const onMouseMove = (moveEvent) => {
+            if (!isDraggingPan) return
+            const deltaY = startYPan - moveEvent.clientY
+            startYPan = moveEvent.clientY
+            updatePan(currentPanVal + deltaY)
+          }
+
+          const onMouseUp = () => {
+            isDraggingPan = false
+            document.removeEventListener('mousemove', onMouseMove)
+            document.removeEventListener('mouseup', onMouseUp)
+            dawHistory.pushState('Adjust Pan')
+          }
+
+          document.addEventListener('mousemove', onMouseMove)
+          document.addEventListener('mouseup', onMouseUp)
+        })
+
+        // Mouse wheel scroll on Arranger pan knob
+        panKnob.addEventListener('wheel', (e) => {
+          e.preventDefault()
+          const delta = -e.deltaY / 10
+          updatePan(currentPanVal + delta)
+          dawHistory.pushState('Adjust Pan')
+        }, { passive: false })
+
+        // Mouse drag on Mixer pan knob (mixerPanKnob)
+        if (mixerPanKnob) {
+          mixerPanKnob.addEventListener('mousedown', (e) => {
+            engine.resume()
+            isDraggingPan = true
+            startYPan = e.clientY
+            
+            const onMouseMove = (moveEvent) => {
+              if (!isDraggingPan) return
+              const deltaY = startYPan - moveEvent.clientY
+              startYPan = moveEvent.clientY
+              updatePan(currentPanVal + deltaY)
+            }
+
+            const onMouseUp = () => {
+              isDraggingPan = false
+              document.removeEventListener('mousemove', onMouseMove)
+              document.removeEventListener('mouseup', onMouseUp)
+              dawHistory.pushState('Adjust Pan')
+            }
+
+            document.addEventListener('mousemove', onMouseMove)
+            document.addEventListener('mouseup', onMouseUp)
+          })
+
+          // Mouse wheel scroll on Mixer pan knob
+          mixerPanKnob.addEventListener('wheel', (e) => {
+            e.preventDefault()
+            const delta = -e.deltaY / 10
+            updatePan(currentPanVal + delta)
+            dawHistory.pushState('Adjust Pan')
+          }, { passive: false })
+        }
       }
 
       // Sync Names & Colors
@@ -1103,6 +1635,7 @@ function init() {
         seqRow.querySelector('.seq-label').textContent = newName
         const opt = document.querySelector(`#pr-track-select option[value="${trackId}"]`)
         if (opt) opt.textContent = newName
+        dawHistory.pushState('Rename Track')
       })
       nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); nameEl.blur() } })
 
@@ -1161,18 +1694,35 @@ function init() {
         channel.style.setProperty('--track-color', color)
         seqRow.style.setProperty('--track-color', color)
       })
+      colorPicker.addEventListener('change', () => {
+        dawHistory.pushState('Change Track Color')
+      })
 
       // Mute / Solo / Record
-      const toggleMute = () => { const isMuted = engine.toggleMute(trackId); syncTrackUI(trackId, 'mute', isMuted) }
-      const toggleSolo = () => { const isSoloed = engine.toggleSolo(trackId); syncTrackUI(trackId, 'solo', isSoloed) }
+      const toggleMute = () => { 
+        const isMuted = engine.toggleMute(trackId)
+        syncTrackUI(trackId, 'mute', isMuted) 
+        dawHistory.pushState(isMuted ? 'Mute Track' : 'Unmute Track')
+      }
+      const toggleSolo = () => { 
+        const isSoloed = engine.toggleSolo(trackId)
+        syncTrackUI(trackId, 'solo', isSoloed) 
+        dawHistory.pushState(isSoloed ? 'Solo Track' : 'Unsolo Track')
+      }
       mBtnH.addEventListener('click', toggleMute); mBtnM.addEventListener('click', toggleMute)
       sBtnH.addEventListener('click', toggleSolo); sBtnM.addEventListener('click', toggleSolo)
-      rBtnH.addEventListener('click', () => { const isArmed = engine.toggleRecord(trackId); syncTrackUI(trackId, 'record', isArmed) })
+      rBtnH.addEventListener('click', () => { 
+        const isArmed = engine.toggleRecord(trackId)
+        syncTrackUI(trackId, 'record', isArmed) 
+        dawHistory.pushState(isArmed ? 'Arm Track' : 'Disarm Track')
+      })
 
       // Generate step sequencer grid for this row
 
       // Initial color trigger
       colorPicker.dispatchEvent(new Event('input'))
+
+      if (window.updateMixerInserts) window.updateMixerInserts()
     }
 
     // Initialize Default Tracks
@@ -1200,7 +1750,7 @@ function init() {
           { tid: 'piano', name: 'epiano_C4.wav', path: `${defaultPath}/Starter Pack/Keys/epiano_C4.wav` },
           { tid: 'bass', name: 'sub_bass_C2.wav', path: `${defaultPath}/Starter Pack/Bass/sub_bass_C2.wav` },
           { tid: 'clap', name: 'clap.wav', path: `${defaultPath}/Starter Pack/Drum Kit/clap.wav` },
-          { tid: 'shaker', name: 'shaker.wav', path: `${defaultPath}/Starter Pack/Drum Kit/shaker.wav` },
+          { tid: 'shaker', name: 'shaker.wav', path: `${defaultPath}/Starter Pack/Percussion/shaker.wav` },
           { tid: 'tom_hi', name: 'tom_hi.wav', path: `${defaultPath}/Starter Pack/Drum Kit/tom_hi.wav` },
           { tid: 'organ', name: 'organ_C4.wav', path: `${defaultPath}/Starter Pack/Organ/organ_C4.wav` }
         ]
@@ -1223,6 +1773,7 @@ function init() {
         const defaultColor = '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
         createTrackUI(trackId, trackName, defaultColor)
         customTrackCounter++
+        dawHistory.pushState('Add Track')
       })
     }
 
@@ -1254,7 +1805,48 @@ function init() {
           document.addEventListener('mouseup', onMouseUp)
         })
       }
+
+      // Select Master Channel
+      masterChannel.addEventListener('mousedown', () => {
+        currentTrackId = 'master'
+        document.querySelectorAll('.track-header, .mixer-channel, .seq-row').forEach(el => el.classList.remove('selected'))
+        masterChannel.classList.add('selected')
+      })
     }
+
+    function updateMixerInserts() {
+      document.querySelectorAll('.mixer-channel').forEach(channel => {
+        const insertsContainer = channel.querySelector('.channel-inserts')
+        if (!insertsContainer) return
+        
+        let trackFx = []
+        if (channel.classList.contains('master')) {
+          trackFx = engine.effects || []
+        } else {
+          const trackId = channel.dataset.trackId
+          const track = engine.getTrack(trackId)
+          trackFx = track ? (track.effects || []) : []
+        }
+        
+        insertsContainer.innerHTML = ''
+        for (let i = 0; i < 3; i++) {
+          const slot = document.createElement('div')
+          slot.className = 'insert-slot'
+          if (i < trackFx.length) {
+            const fx = trackFx[i]
+            slot.className = 'insert-slot active'
+            slot.textContent = fx.name
+            slot.title = `Double click to open ${fx.name}`
+            slot.addEventListener('dblclick', (e) => {
+              e.stopPropagation()
+              showPluginWindow(fx)
+            })
+          }
+          insertsContainer.appendChild(slot)
+        }
+      })
+    }
+    window.updateMixerInserts = updateMixerInserts
 
     function syncTrackUI(trackId, type, state) {
       const map = trackUIMap[trackId]
@@ -1347,26 +1939,39 @@ function init() {
 
     drawTimeline() // Initial draw
     
+    function switchToView(targetId) {
+      const toggleBtns = document.querySelectorAll('.toggle-view')
+      const footerPanels = document.querySelectorAll('.footer-panel')
+      
+      toggleBtns.forEach(b => {
+        if (b.dataset.target === targetId) {
+          b.classList.add('btn-primary')
+        } else {
+          b.classList.remove('btn-primary')
+        }
+      })
+      
+      footerPanels.forEach(p => {
+        if (p.id === targetId) {
+          p.classList.add('active')
+        } else {
+          p.classList.remove('active')
+        }
+      })
+      
+      const app = document.getElementById('app')
+      if (app && app.classList.contains('footer-collapsed')) {
+        app.classList.remove('footer-collapsed')
+      }
+    }
+
     // Bottom Panel Toggles
     const toggleBtns = document.querySelectorAll('.toggle-view')
     const footerPanels = document.querySelectorAll('.footer-panel')
     
     toggleBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-        const targetId = btn.dataset.target
-        
-        // Update active button
-        toggleBtns.forEach(b => b.classList.remove('btn-primary'))
-        btn.classList.add('btn-primary')
-        
-        // Update active panel
-        footerPanels.forEach(p => {
-          if (p.id === targetId) {
-            p.classList.add('active')
-          } else {
-            p.classList.remove('active')
-          }
-        })
+        switchToView(btn.dataset.target)
       })
       btn.addEventListener('dblclick', () => {
         const app = document.getElementById('app')
@@ -1491,6 +2096,7 @@ function init() {
               if (!step.classList.contains('active')) {
                 step.classList.add('active')
                 if (note) syncStepToPianoRoll(trackId, note, i, true)
+                dawHistory.pushState('Toggle Step')
               }
             }
           })
@@ -1499,6 +2105,7 @@ function init() {
             if (step.classList.contains('active')) {
               step.classList.remove('active');
               if (note) syncStepToPianoRoll(trackId, note, i, false);
+              dawHistory.pushState('Toggle Step')
             }
           })
           container.appendChild(step)
@@ -1580,6 +2187,15 @@ function init() {
       pClip.dataset.duration = duration;
       pClip.dataset.patternTrackId = trackId;
       
+      pClip.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        const map = trackUIMap[trackId];
+        if (map && map.headers[0] && map.headers[0].headerEl) {
+          map.headers[0].headerEl.dispatchEvent(new MouseEvent('mousedown'));
+        }
+        switchToView('piano-roll-view');
+      });
+
       const trackNotes = sequencer.patterns[trackId] || [];
       const beatsPerSecond = sequencer.bpm / 60;
       const secondsPerStep = (1 / beatsPerSecond) / 4;
@@ -1712,6 +2328,7 @@ function init() {
           }
           selectedNotes.delete(note);
           note.remove();
+          dawHistory.pushState('Delete Note');
         }
       });
       
@@ -1936,6 +2553,9 @@ function init() {
         }
 
         if (prDragState) {
+          const isResize = prDragState.type === 'resize' || prDragState.type === 'paint';
+          const actionName = isResize ? 'Resize Note' : (prDragState.isNew ? 'Create Note' : 'Move Note');
+
           prDragState.items?.forEach(item => {
             item.el.classList.remove('dragging');
             const row = item.el.closest('.pr-row');
@@ -1962,6 +2582,7 @@ function init() {
           });
           syncPatternClip(prDragState.trackId);
           prDragState = null;
+          dawHistory.pushState(actionName);
         }
       });
     }
@@ -2080,12 +2701,32 @@ function init() {
         const map = trackUIMap[trackId]
         const h = map.headers[0]
         const engineTrack = engine.getTrack(trackId)
+        
+        const effectsData = []
+        if (engineTrack && engineTrack.effects) {
+          engineTrack.effects.forEach(fx => {
+            effectsData.push({
+              id: fx.id,
+              type: fx.type,
+              name: fx.name,
+              icon: fx.icon,
+              params: fx.params
+            })
+          })
+        }
+
         tracksData.push({
           id: trackId,
           name: h?.nameEl?.textContent || trackId,
           color: h?.colorPicker?.value || '#00e5ff',
           instrumentPath: engineTrack?._instrumentPath || null,
-          instrumentRootMidi: engineTrack?.instrumentRootMidi ?? 60
+          instrumentRootMidi: engineTrack?.instrumentRootMidi ?? 60,
+          volume: engineTrack?.baseVolume ?? 0.8,
+          pan: engineTrack?.pan ?? 0.0,
+          generator: engineTrack?.generator ?? null,
+          isMuted: engineTrack?.isMuted ?? false,
+          isSoloed: engineTrack?.isSoloed ?? false,
+          effects: effectsData
         })
       })
 
@@ -2113,6 +2754,19 @@ function init() {
         }))
       })
 
+      const masterEffectsData = []
+      if (engine.effects) {
+        engine.effects.forEach(fx => {
+          masterEffectsData.push({
+            id: fx.id,
+            type: fx.type,
+            name: fx.name,
+            icon: fx.icon,
+            params: fx.params
+          })
+        })
+      }
+
       return JSON.stringify({
         version: 1,
         bpm: sequencer.bpm,
@@ -2120,7 +2774,8 @@ function init() {
         tracks: tracksData,
         clips: clipsData,
         patternClips: patternClipsData,
-        patterns: patternsData
+        patterns: patternsData,
+        masterEffects: masterEffectsData
       }, null, 2)
     }
 
@@ -2133,6 +2788,7 @@ function init() {
         document.title = `Bounce — ${fileName}`
         const titleEl = document.getElementById('project-title')
         if (titleEl) titleEl.textContent = fileName
+        showHudFeedback("💾", `Saved: ${fileName}`)
       } else {
         alert('Save failed.')
       }
@@ -2151,6 +2807,230 @@ function init() {
       const path = await window.api.saveFile(currentProjectPath || 'Untitled.bounce')
       if (path) await doSave(path)
     })
+
+    document.getElementById('menu-undo')?.addEventListener('click', () => {
+      dawHistory.undo()
+    })
+
+    document.getElementById('menu-redo')?.addEventListener('click', () => {
+      dawHistory.redo()
+    })
+
+    function doCopy() {
+      dawClipboard.data = [];
+      if (selectedNotes.size > 0) {
+        let minStep = Infinity;
+        selectedNotes.forEach(noteEl => {
+          const step = parseInt(noteEl.dataset.step) || 0;
+          minStep = Math.min(minStep, step);
+        });
+        dawClipboard.type = 'notes';
+        selectedNotes.forEach(noteEl => {
+          const row = noteEl.closest('.pr-row');
+          if (row) {
+            const noteName = row.dataset.note;
+            const step = parseInt(noteEl.dataset.step) || 0;
+            const duration = parseFloat(noteEl.dataset.duration || 1);
+            dawClipboard.data.push({
+              noteName,
+              relStep: step - minStep,
+              duration
+            });
+          }
+        });
+        showHudFeedback("📋", `Copied ${selectedNotes.size} Notes`);
+      } else if (selectedClips.size > 0) {
+        let minStart = Infinity;
+        selectedClips.forEach(clipEl => {
+          const start = parseFloat(clipEl.dataset.startTime) || 0;
+          minStart = Math.min(minStart, start);
+        });
+        dawClipboard.type = 'clips';
+        selectedClips.forEach(clipEl => {
+          const isPattern = clipEl.classList.contains('pattern-clip');
+          const trackId = isPattern ? clipEl.dataset.patternTrackId : (clipEl.parentElement.dataset.trackId || 'drums');
+          const start = parseFloat(clipEl.dataset.startTime) || 0;
+          const duration = parseFloat(clipEl.dataset.duration) || 1;
+
+          if (isPattern) {
+            const seqClip = sequencer.patternClips.find(c => c.uiElement === clipEl);
+            dawClipboard.data.push({
+              trackId,
+              relStart: start - minStart,
+              duration,
+              originalDuration: seqClip ? (seqClip.originalDuration || duration) : duration,
+              isPattern: true
+            });
+          } else {
+            const seqClip = sequencer.clips.find(c => c.uiElement === clipEl);
+            if (seqClip) {
+              dawClipboard.data.push({
+                trackId,
+                relStart: start - minStart,
+                duration,
+                originalDuration: seqClip.originalDuration || duration,
+                isPattern: false,
+                filePath: seqClip._filePath,
+                fileName: seqClip._fileName,
+                buffer: seqClip.buffer
+              });
+            }
+          }
+        });
+        showHudFeedback("📋", `Copied ${selectedClips.size} Clips`);
+      } else {
+        showHudFeedback("📋", "No selection to copy");
+      }
+    }
+
+    function doCut() {
+      if (selectedNotes.size === 0 && selectedClips.size === 0) {
+        showHudFeedback("✂️", "No selection to cut");
+        return;
+      }
+      
+      doCopy();
+      
+      if (dawClipboard.type === 'notes') {
+        const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+        selectedNotes.forEach(noteEl => {
+          const row = noteEl.closest('.pr-row');
+          if (row) {
+            const noteName = row.dataset.note;
+            const step = parseInt(noteEl.dataset.step);
+            sequencer.removeNoteFromPattern(currentTrackId, noteName, step);
+            const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${noteName}"]`);
+            if (stepSeqRow) {
+              const s = stepSeqRow.querySelector(`[data-step-index="${step}"]`);
+              if (s) s.classList.remove('active');
+            }
+          }
+          noteEl.remove();
+        });
+        selectedNotes.clear();
+        syncPatternClip(currentTrackId);
+        dawHistory.pushState("Cut Note");
+        showHudFeedback("✂️", "Cut Notes");
+      } else if (dawClipboard.type === 'clips') {
+        selectedClips.forEach(clipEl => {
+          const isPattern = clipEl.classList.contains('pattern-clip');
+          if (isPattern) {
+            const seqClip = sequencer.patternClips.find(c => c.uiElement === clipEl);
+            if (seqClip) sequencer.removePatternClip(seqClip);
+          } else {
+            const seqClip = sequencer.clips.find(c => c.uiElement === clipEl);
+            if (seqClip) sequencer.removeClip(seqClip);
+          }
+          clipEl.remove();
+        });
+        selectedClips.clear();
+        dawHistory.pushState("Cut Clip");
+        showHudFeedback("✂️", "Cut Clips");
+      }
+    }
+
+    function doPaste() {
+      if (!dawClipboard.type || dawClipboard.data.length === 0) {
+        showHudFeedback("📋", "Clipboard Empty");
+        return;
+      }
+
+      const currentPlayheadTime = sequencer.isPlaying ? (engine.ctx.currentTime - sequencer.startTime) : sequencer.pauseTime;
+
+      if (dawClipboard.type === 'notes') {
+        const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+        const beatsPerSecond = sequencer.bpm / 60;
+        const secondsPerStep = (1 / beatsPerSecond) / 4;
+        const pasteStep = Math.round(currentPlayheadTime / secondsPerStep);
+
+        selectedNotes.forEach(n => n.classList.remove('selected'));
+        selectedNotes.clear();
+
+        const grid = document.getElementById('piano-grid');
+        const map = trackUIMap[currentTrackId];
+        const color = map && map.headers[0] ? map.headers[0].laneEl.style.getPropertyValue('--track-color') : null;
+
+        dawClipboard.data.forEach(item => {
+          const finalStep = pasteStep + item.relStep;
+          const noteEl = createPrNote(currentTrackId, item.noteName, finalStep, item.duration, color);
+          const row = grid.querySelector(`[data-note="${item.noteName}"]`);
+          if (row) {
+            row.appendChild(noteEl);
+            sequencer.addNoteToPattern(currentTrackId, item.noteName, finalStep, item.duration);
+            
+            const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${item.noteName}"]`);
+            if (stepSeqRow) {
+              const s = stepSeqRow.querySelector(`[data-step-index="${finalStep}"]`);
+              if (s) s.classList.add('active');
+            }
+            
+            noteEl.classList.add('selected');
+            selectedNotes.add(noteEl);
+          }
+        });
+        syncPatternClip(currentTrackId);
+        dawHistory.pushState("Paste Note");
+        showHudFeedback("📋", "Pasted Notes");
+      } else if (dawClipboard.type === 'clips') {
+        const pasteTime = sequencer.snapTimeToGrid(currentPlayheadTime);
+        selectedClips.forEach(c => c.classList.remove('selected'));
+        selectedClips.clear();
+
+        dawClipboard.data.forEach(item => {
+          const finalStartTime = pasteTime + item.relStart;
+          const lane = document.querySelector(`.track-lane[data-track-id="${item.trackId}"]`);
+          if (lane) {
+            if (item.isPattern) {
+              const clipEl = createPatternClipUI(item.trackId, finalStartTime, item.duration, lane);
+              clipEl.classList.add('selected');
+              selectedClips.add(clipEl);
+            } else {
+              const clipEl = document.createElement('div');
+              clipEl.className = 'clip audio-clip';
+              clipEl.style.left = `${finalStartTime * sequencer.pxPerSecond}px`;
+              clipEl.style.width = `${Math.max(20, item.duration * sequencer.pxPerSecond)}px`;
+              clipEl.textContent = item.fileName;
+              clipEl.dataset.startTime = finalStartTime;
+              clipEl.dataset.duration = item.duration;
+              
+              const rh = document.createElement('div');
+              rh.className = 'resize-handle';
+              clipEl.appendChild(rh);
+              lane.appendChild(clipEl);
+
+              sequencer.addClip({
+                buffer: item.buffer,
+                startTime: finalStartTime,
+                duration: item.duration,
+                originalDuration: item.originalDuration,
+                trackId: item.trackId,
+                scheduled: false,
+                uiElement: clipEl,
+                _filePath: item.filePath,
+                _fileName: item.fileName
+              });
+              
+              clipEl.classList.add('selected');
+              selectedClips.add(clipEl);
+            }
+          }
+        });
+        dawHistory.pushState("Paste Clip");
+        showHudFeedback("📋", "Pasted Clips");
+      }
+    }
+
+    document.getElementById('menu-copy')?.addEventListener('click', () => {
+      doCopy();
+    });
+
+    document.getElementById('menu-cut')?.addEventListener('click', () => {
+      doCut();
+    });
+
+    document.getElementById('menu-paste')?.addEventListener('click', () => {
+      doPaste();
+    });
 
     document.getElementById('menu-open')?.addEventListener('click', async () => {
       const path = await window.api.openFile()
@@ -2222,6 +3102,110 @@ function init() {
         if (ts) ts.value = `${data.timeSignature.numerator}/${data.timeSignature.denominator}`
       }
       drawTimeline()
+      
+      // Clear existing tracks and recreate them with mute/solo/volume/effects restored
+      if (data.tracks && data.tracks.length > 0) {
+        Object.keys(trackUIMap).forEach(tid => {
+          engine.removeTrack(tid)
+          delete sequencer.patterns[tid]
+        })
+        document.getElementById('track-headers-container').innerHTML = ''
+        document.getElementById('track-lanes-container').innerHTML = ''
+        document.getElementById('mixer-channels-container').innerHTML = ''
+        document.getElementById('step-sequencer-view').querySelectorAll('.seq-row').forEach(r => r.remove())
+        const prSelect = document.getElementById('pr-track-select')
+        if (prSelect) prSelect.innerHTML = ''
+        Object.keys(trackUIMap).forEach(k => delete trackUIMap[k])
+
+        for (const track of data.tracks) {
+          createTrackUI(track.id, track.name, track.color)
+          
+          const engineTrack = engine.getTrack(track.id)
+          if (engineTrack) {
+            // Restore volume
+            if (track.volume !== undefined) {
+              const knobVal = (track.volume / 1.5) * 100
+              if (trackUIMap[track.id] && trackUIMap[track.id].updateKnob) {
+                trackUIMap[track.id].updateKnob(knobVal)
+              }
+            }
+            // Restore mute/solo
+            if (track.isMuted !== undefined) {
+              engineTrack.isMuted = track.isMuted
+              syncTrackUI(track.id, 'mute', track.isMuted)
+            }
+            if (track.isSoloed !== undefined) {
+              engineTrack.isSoloed = track.isSoloed
+              if (track.isSoloed) {
+                engine.soloedTracks.add(track.id)
+              } else {
+                engine.soloedTracks.delete(track.id)
+              }
+              syncTrackUI(track.id, 'solo', track.isSoloed)
+            }
+            // Restore panning
+            if (track.pan !== undefined) {
+              const panPercent = (track.pan + 1) * 50 // Map -1..1 to 0..100
+              if (trackUIMap[track.id] && trackUIMap[track.id].updatePan) {
+                trackUIMap[track.id].updatePan(panPercent)
+              }
+            }
+            // Restore generator parameters
+            if (track.generator && track.generator.params) {
+              engineTrack.generator = {
+                type: track.generator.type || 'sampler',
+                params: { ...engineTrack.generator.params, ...track.generator.params }
+              }
+            }
+          }
+
+          // Restore instrument buffer
+          if (track.instrumentPath) {
+            try {
+              const fileName = track.instrumentPath.split(/[\\/]/).pop()
+              const sampleObj = { tid: track.id, name: fileName, path: track.instrumentPath }
+              if (trackUIMap[track.id] && trackUIMap[track.id].loadInstrument) {
+                await trackUIMap[track.id].loadInstrument(track.id, sampleObj)
+              }
+            } catch(e) { console.warn("Failed to load instrument during restore:", track.id, e) }
+          }
+
+          // Restore effects
+          if (track.effects && track.effects.length > 0 && engineTrack) {
+            for (const fxData of track.effects) {
+              const fxObj = engineTrack.addEffect(fxData.type)
+              if (fxObj) {
+                fxObj.id = fxData.id
+                if (fxData.params && fxObj.updateParams) {
+                  fxObj.params = { ...fxObj.params, ...fxData.params }
+                  fxObj.updateParams(fxData.params)
+                }
+              }
+            }
+          }
+        }
+
+        // Restore Master Effects
+        engine.effects = []
+        if (data.masterEffects && data.masterEffects.length > 0) {
+          for (const fxData of data.masterEffects) {
+            const fxObj = engine.addEffect(fxData.type)
+            if (fxObj) {
+              fxObj.id = fxData.id
+              if (fxData.params && fxObj.updateParams) {
+                fxObj.params = { ...fxObj.params, ...fxData.params }
+                fxObj.updateParams(fxData.params)
+              }
+            }
+          }
+        }
+        engine.rebuildMasterChain()
+
+        if (window.updatePluginsFooter) window.updatePluginsFooter()
+        if (window.updateMixerInserts) window.updateMixerInserts()
+        engine.updateTrackVolumes()
+      }
+
       // Clear existing clips
       document.querySelectorAll('.clip').forEach(c => c.remove())
       sequencer.clips = []
@@ -2329,12 +3313,151 @@ function init() {
     const effectsContainer = document.getElementById('effects-container')
     const generatorsContainer = document.getElementById('generators-container')
 
+    // ── Footer Plugins Integration ───────────────────────────────
+    window.updatePluginsFooter = function() {
+      const list = document.getElementById('active-plugins-list')
+      if (!list) return
+      list.innerHTML = ''
+
+      // Track generators
+      engine.tracks.forEach((track, trackId) => {
+        if (track.generator) {
+          const genNames = { sampler: 'Sampler', monosynth: 'Mono Synth', polysynth: 'Poly Synth', fmsynth: 'FM Synth' };
+          const genIcons = { sampler: '📼', monosynth: '🎹', polysynth: '🎼', fmsynth: '📻' };
+          const name = genNames[track.generator.type] || 'Generator';
+          const icon = genIcons[track.generator.type] || '🎹';
+
+          const genItem = document.createElement('div')
+          genItem.className = 'active-plugin-item'
+          genItem.style.borderLeft = '3px solid #00e5ff' // Custom generator color highlight!
+          genItem.innerHTML = `
+            <div class="plugin-item-icon">${icon}</div>
+            <div class="plugin-item-details">
+              <div class="plugin-item-name">${name}</div>
+              <div class="plugin-item-track">${track.name || trackId}</div>
+            </div>
+            <div class="plugin-item-controls">
+              <div class="plugin-item-status" style="background-color:#00e5ff; box-shadow:0 0 8px #00e5ff;"></div>
+              <button class="plugin-item-remove-btn" title="Unload instrument">✕</button>
+            </div>
+          `
+          genItem.addEventListener('dblclick', () => {
+            showGeneratorWindow(trackId)
+          })
+
+          const removeBtn = genItem.querySelector('.plugin-item-remove-btn')
+          removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation()
+            track.generator = null
+            if (openGeneratorWindows.has(trackId)) {
+              openGeneratorWindows.get(trackId).remove()
+              openGeneratorWindows.delete(trackId)
+            }
+            window.updatePluginsFooter()
+            dawHistory.pushState(`Unload Track Generator`)
+          })
+
+          list.appendChild(genItem)
+        }
+      })
+      
+      // Track plugins
+      engine.tracks.forEach((track, trackId) => {
+        track.effects.forEach(fx => {
+          const fxItem = document.createElement('div')
+          fxItem.className = 'active-plugin-item'
+          fxItem.innerHTML = `
+            <div class="plugin-item-icon">${fx.icon || '🔌'}</div>
+            <div class="plugin-item-details">
+              <div class="plugin-item-name">${fx.name}</div>
+              <div class="plugin-item-track">${track.name || trackId}</div>
+            </div>
+            <div class="plugin-item-controls">
+              <div class="plugin-item-status"></div>
+              <button class="plugin-item-remove-btn" title="Remove plugin">✕</button>
+            </div>
+          `
+          fxItem.addEventListener('dblclick', () => {
+            showPluginWindow(fx)
+          })
+
+          const removeBtn = fxItem.querySelector('.plugin-item-remove-btn')
+          removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation()
+            // Remove from audio engine track
+            track.removeEffect(fx.id)
+            // Close floating plugin window if open
+            if (openPluginWindows.has(fx.id)) {
+              openPluginWindows.get(fx.id).remove()
+              openPluginWindows.delete(fx.id)
+            }
+            // Refresh list
+            window.updatePluginsFooter()
+            if (window.updateMixerInserts) window.updateMixerInserts()
+            dawHistory.pushState(`Remove ${fx.name} Plugin`)
+          })
+
+          list.appendChild(fxItem)
+        })
+      })
+
+      // Master plugins
+      if (engine.effects) {
+        engine.effects.forEach(fx => {
+          const fxItem = document.createElement('div')
+          fxItem.className = 'active-plugin-item'
+          fxItem.innerHTML = `
+            <div class="plugin-item-icon">${fx.icon || '🔌'}</div>
+            <div class="plugin-item-details">
+              <div class="plugin-item-name">${fx.name}</div>
+              <div class="plugin-item-track">Master</div>
+            </div>
+            <div class="plugin-item-controls">
+              <div class="plugin-item-status"></div>
+              <button class="plugin-item-remove-btn" title="Remove plugin">✕</button>
+            </div>
+          `
+          fxItem.addEventListener('dblclick', () => {
+            showPluginWindow(fx)
+          })
+
+          const removeBtn = fxItem.querySelector('.plugin-item-remove-btn')
+          removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation()
+            // Remove from master channel
+            engine.removeEffect(fx.id)
+            // Close floating plugin window if open
+            if (openPluginWindows.has(fx.id)) {
+              openPluginWindows.get(fx.id).remove()
+              openPluginWindows.delete(fx.id)
+            }
+            // Refresh list
+            window.updatePluginsFooter()
+            if (window.updateMixerInserts) window.updateMixerInserts()
+            dawHistory.pushState(`Remove ${fx.name} Plugin`)
+          })
+
+          list.appendChild(fxItem)
+        })
+      }
+    }
+
     // ── Plugin Window Logic ──────────────────────────────────────
-    function showPluginWindow(item, type) {
+    const openPluginWindows = new Map();
+
+    function showPluginWindow(fxObj) {
+      if (!fxObj) return
       const host = document.getElementById('plugin-host')
       if (!host) return
 
-      const winId = `plugin-${Math.random().toString(36).substr(2, 9)}`
+      // If already open, bring to front
+      if (openPluginWindows.has(fxObj.id)) {
+        const existingWin = openPluginWindows.get(fxObj.id);
+        host.appendChild(existingWin); // Bring to front
+        return;
+      }
+
+      const winId = `plugin-win-${fxObj.id}`
       const win = document.createElement('div')
       win.className = 'plugin-window'
       win.id = winId
@@ -2345,39 +3468,342 @@ function init() {
       header.className = 'plugin-header'
       header.innerHTML = `
         <div class="plugin-title">
-          <span>${item.icon}</span>
-          <span>${item.name.toUpperCase()}</span>
+          <span>${fxObj.icon || '🔌'}</span>
+          <span>${fxObj.name.toUpperCase()}</span>
         </div>
         <button class="plugin-close">✕</button>
       `
       
       const content = document.createElement('div')
       content.className = 'plugin-content'
+      content.style.display = 'flex';
+      content.style.gap = '16px';
       
-      // Generate some dummy params
-      const params = [
-        { label: 'Mix', value: '50%' },
-        { label: 'Tone', value: '75%' },
-        { label: 'Gain', value: '0dB' }
-      ]
+      // Render functional parameters
+      if (fxObj.params) {
+        Object.keys(fxObj.params).forEach(paramName => {
+          const param = document.createElement('div')
+          param.className = 'plugin-param'
+          param.style.display = 'flex';
+          param.style.flexDirection = 'column';
+          param.style.alignItems = 'center';
 
-      params.forEach(p => {
+          // Define min/max ranges for basic params
+          let min = 0, max = 1;
+          if (paramName === 'size') max = 5;
+          if (paramName === 'decay') max = 10;
+          if (paramName === 'threshold') { min = -60; max = 0; }
+          if (paramName === 'ratio') { min = 1; max = 20; }
+          if (paramName === 'attack') { min = 0.001; max = 0.5; }
+          if (paramName === 'release') { min = 0.01; max = 1.0; }
+          if (paramName === 'low') { min = -12; max = 12; }
+          if (paramName === 'mid') { min = -12; max = 12; }
+          if (paramName === 'high') { min = -12; max = 12; }
+          if (paramName === 'feedback') { min = 0; max = 0.95; }
+          
+          let currentVal = fxObj.params[paramName];
+          
+          const getAngle = (v) => {
+            return -135 + ((v - min) / (max - min)) * 270;
+          };
+
+          param.innerHTML = `
+            <div class="plugin-knob" data-param="${paramName}" style="transform: rotate(${getAngle(currentVal)}deg); margin-bottom: 8px;"></div>
+            <div class="plugin-label">${paramName.toUpperCase()}</div>
+            <div class="plugin-value" id="val-${fxObj.id}-${paramName}">${currentVal.toFixed(2)}</div>
+          `
+          
+          const knob = param.querySelector('.plugin-knob');
+          let isDraggingKnob = false;
+          let startY = 0;
+          
+          knob.addEventListener('mousedown', (e) => {
+            isDraggingKnob = true;
+            startY = e.clientY;
+            e.stopPropagation(); // Prevent window drag
+          });
+          
+          document.addEventListener('mousemove', (e) => {
+            if (!isDraggingKnob) return;
+            const deltaY = startY - e.clientY; // Up is positive
+            startY = e.clientY;
+            
+            const range = max - min;
+            const step = range / 150; // 150px drag for full range
+            currentVal = Math.max(min, Math.min(max, currentVal + deltaY * step));
+            
+            knob.style.transform = `rotate(${getAngle(currentVal)}deg)`;
+            param.querySelector('.plugin-value').textContent = currentVal.toFixed(2);
+            
+            if (fxObj.updateParams) {
+              fxObj.updateParams({ [paramName]: currentVal });
+            }
+          });
+          
+          document.addEventListener('mouseup', () => {
+            if (isDraggingKnob) {
+              isDraggingKnob = false;
+              dawHistory.pushState(`Tweak ${fxObj.name} ${paramName}`);
+            }
+          });
+          
+          content.appendChild(param)
+        })
+      } else {
+        content.innerHTML = '<div style="color: var(--text-secondary); font-size: 0.8rem;">No parameters available.</div>';
+      }
+
+      win.appendChild(header)
+      win.appendChild(content)
+      host.appendChild(win)
+      
+      openPluginWindows.set(fxObj.id, win);
+
+      // Close logic
+      win.querySelector('.plugin-close').addEventListener('click', () => {
+        win.remove();
+        openPluginWindows.delete(fxObj.id);
+      })
+
+      // Drag logic
+      let isDragging = false
+      let startX, startY, startLeft, startTop
+
+      header.addEventListener('mousedown', (e) => {
+        isDragging = true
+        startX = e.clientX
+        startY = e.clientY
+        const rect = win.getBoundingClientRect()
+        startLeft = rect.left
+        startTop = rect.top
+        win.style.transform = 'none' // Disable centering transform once dragged
+        win.style.left = `${startLeft}px`
+        win.style.top = `${startTop}px`
+      })
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return
+        const dx = e.clientX - startX
+        const dy = e.clientY - startY
+        win.style.left = `${startLeft + dx}px`
+        win.style.top = `${startTop + dy}px`
+      })
+
+      document.addEventListener('mouseup', () => {
+        isDragging = false
+      })
+    }
+
+    const openGeneratorWindows = new Map();
+
+    function showGeneratorWindow(trackId) {
+      const track = engine.getTrack(trackId)
+      if (!track || !track.generator) return
+      
+      const host = document.getElementById('plugin-host')
+      if (!host) return
+
+      const winId = `generator-win-${trackId}`
+      // If already open, bring to front
+      if (openGeneratorWindows.has(trackId)) {
+        const existingWin = openGeneratorWindows.get(trackId);
+        host.appendChild(existingWin); // Bring to front
+        return;
+      }
+
+      const win = document.createElement('div')
+      win.className = 'plugin-window'
+      win.id = winId
+      win.style.left = '50%'
+      win.style.top = '50%'
+      win.style.border = '1px solid rgba(0, 229, 255, 0.3)' // Glowing border for generator!
+      win.style.boxShadow = '0 24px 64px rgba(0, 0, 0, 0.8), 0 0 24px rgba(0, 229, 255, 0.15)'
+
+      const genNames = { sampler: 'Sampler', monosynth: 'Mono Synth', polysynth: 'Poly Synth', fmsynth: 'FM Synth' };
+      const genIcons = { sampler: '📼', monosynth: '🎹', polysynth: '🎼', fmsynth: '📻' };
+      const name = genNames[track.generator.type] || 'Generator';
+      const icon = genIcons[track.generator.type] || '🎹';
+
+      const header = document.createElement('div')
+      header.className = 'plugin-header'
+      header.innerHTML = `
+        <div class="plugin-title">
+          <span>${icon}</span>
+          <span>${name.toUpperCase()} — ${track.name.toUpperCase()}</span>
+        </div>
+        <button class="plugin-close">✕</button>
+      `
+      
+      const content = document.createElement('div')
+      content.className = 'plugin-content'
+      content.style.display = 'flex';
+      content.style.gap = '16px';
+      content.style.flexWrap = 'wrap';
+      content.style.justifyContent = 'center';
+
+      let paramsSpec = []
+      const type = track.generator.type;
+      
+      if (type === 'sampler') {
+        paramsSpec = [
+          { name: 'attack', label: 'ATTACK', min: 0.001, max: 2.0, suffix: 's' },
+          { name: 'decay', label: 'DECAY', min: 0.01, max: 2.0, suffix: 's' },
+          { name: 'sustain', label: 'SUSTAIN', min: 0.0, max: 1.0, suffix: '' },
+          { name: 'release', label: 'RELEASE', min: 0.01, max: 3.0, suffix: 's' },
+          { name: 'cutoff', label: 'CUTOFF', min: 20, max: 20000, suffix: 'Hz', isLog: true },
+          { name: 'resonance', label: 'RESONANCE', min: 0.1, max: 20.0, suffix: '' },
+          { name: 'pitch', label: 'PITCH', min: -24, max: 24, suffix: 'st', step: 1 }
+        ]
+      } else if (type === 'monosynth') {
+        paramsSpec = [
+          { name: 'oscType', label: 'OSC TYPE', min: 0, max: 3, suffix: '', step: 1, isOscSelect: true },
+          { name: 'subOsc', label: 'SUB OSC', min: 0.0, max: 1.0, suffix: '' },
+          { name: 'attack', label: 'ATTACK', min: 0.001, max: 2.0, suffix: 's' },
+          { name: 'decay', label: 'DECAY', min: 0.01, max: 2.0, suffix: 's' },
+          { name: 'sustain', label: 'SUSTAIN', min: 0.0, max: 1.0, suffix: '' },
+          { name: 'release', label: 'RELEASE', min: 0.01, max: 3.0, suffix: 's' },
+          { name: 'cutoff', label: 'CUTOFF', min: 20, max: 20000, suffix: 'Hz', isLog: true },
+          { name: 'resonance', label: 'RESONANCE', min: 0.1, max: 20.0, suffix: '' }
+        ]
+      } else if (type === 'polysynth') {
+        paramsSpec = [
+          { name: 'oscType', label: 'OSC TYPE', min: 0, max: 3, suffix: '', step: 1, isOscSelect: true },
+          { name: 'detune', label: 'DETUNE', min: 0, max: 100, suffix: 'c', step: 1 },
+          { name: 'attack', label: 'ATTACK', min: 0.001, max: 2.0, suffix: 's' },
+          { name: 'decay', label: 'DECAY', min: 0.01, max: 2.0, suffix: 's' },
+          { name: 'sustain', label: 'SUSTAIN', min: 0.0, max: 1.0, suffix: '' },
+          { name: 'release', label: 'RELEASE', min: 0.01, max: 3.0, suffix: 's' },
+          { name: 'cutoff', label: 'CUTOFF', min: 20, max: 20000, suffix: 'Hz', isLog: true },
+          { name: 'resonance', label: 'RESONANCE', min: 0.1, max: 20.0, suffix: '' }
+        ]
+      } else if (type === 'fmsynth') {
+        paramsSpec = [
+          { name: 'carrierType', label: 'CARRIER', min: 0, max: 3, suffix: '', step: 1, isOscSelect: true },
+          { name: 'modType', label: 'MODULATOR', min: 0, max: 3, suffix: '', step: 1, isOscSelect: true },
+          { name: 'modIndex', label: 'MOD INDEX', min: 0.0, max: 20.0, suffix: '' },
+          { name: 'modFreqRatio', label: 'FREQ RATIO', min: 0.25, max: 8.0, suffix: 'x', step: 0.25 },
+          { name: 'attack', label: 'ATTACK', min: 0.001, max: 2.0, suffix: 's' },
+          { name: 'decay', label: 'DECAY', min: 0.01, max: 2.0, suffix: 's' },
+          { name: 'sustain', label: 'SUSTAIN', min: 0.0, max: 1.0, suffix: '' },
+          { name: 'release', label: 'RELEASE', min: 0.01, max: 3.0, suffix: 's' }
+        ]
+      }
+
+      paramsSpec.forEach(pSpec => {
+        const paramName = pSpec.name;
         const param = document.createElement('div')
         param.className = 'plugin-param'
+        param.style.display = 'flex';
+        param.style.flexDirection = 'column';
+        param.style.alignItems = 'center';
+
+        const OSC_TYPES = ['sawtooth', 'square', 'triangle', 'sine'];
+        const min = pSpec.min;
+        const max = pSpec.max;
+        
+        let currentVal;
+        if (pSpec.isOscSelect) {
+          const waveStr = track.generator.params[paramName] || 'sawtooth';
+          const idx = OSC_TYPES.indexOf(waveStr);
+          currentVal = idx !== -1 ? idx : 0;
+        } else {
+          currentVal = track.generator.params[paramName] !== undefined ? track.generator.params[paramName] : min;
+        }
+
+        // Logarithmic scale math for cutoff
+        const toVal = (pct) => {
+          if (pSpec.isLog) {
+            return min * Math.pow(max / min, pct);
+          }
+          let v = min + pct * (max - min);
+          if (pSpec.step) {
+            v = Math.round(v / pSpec.step) * pSpec.step;
+          }
+          return v;
+        }
+
+        const toPct = (val) => {
+          if (pSpec.isLog) {
+            return Math.log(val / min) / Math.log(max / min);
+          }
+          return (val - min) / (max - min);
+        }
+
+        const getAngle = (v) => {
+          const pct = toPct(v);
+          return -135 + pct * 270;
+        }
+
+        const formatVal = (v) => {
+          if (pSpec.isOscSelect) {
+            const idx = Math.max(0, Math.min(3, Math.round(v)));
+            return OSC_TYPES[idx].toUpperCase();
+          }
+          if (pSpec.step) {
+            const decimalPlaces = pSpec.step < 1 ? (pSpec.step === 0.25 ? 2 : 1) : 0;
+            return v.toFixed(decimalPlaces) + pSpec.suffix;
+          }
+          if (v >= 1000) return (v / 1000).toFixed(1) + 'k' + pSpec.suffix;
+          return v.toFixed(2) + pSpec.suffix;
+        }
+
         param.innerHTML = `
-          <div class="plugin-knob"></div>
-          <div class="plugin-label">${p.label}</div>
-          <div class="plugin-value">${p.value}</div>
+          <div class="plugin-knob" data-param="${paramName}" style="transform: rotate(${getAngle(currentVal)}deg); margin-bottom: 8px; border-color: rgba(0, 229, 255, 0.4);"></div>
+          <div class="plugin-label">${pSpec.label}</div>
+          <div class="plugin-value" id="val-${trackId}-${paramName}">${formatVal(currentVal)}</div>
         `
+        
+        const knob = param.querySelector('.plugin-knob');
+        let isDraggingKnob = false;
+        let startY = 0;
+        
+        knob.addEventListener('mousedown', (e) => {
+          isDraggingKnob = true;
+          startY = e.clientY;
+          e.stopPropagation(); // Prevent window drag
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+          if (!isDraggingKnob) return;
+          const deltaY = startY - e.clientY; // Up is positive
+          startY = e.clientY;
+          
+          let pct = toPct(currentVal);
+          pct = Math.max(0, Math.min(1, pct + deltaY / 150)); // 150px drag for full range
+          currentVal = toVal(pct);
+          
+          let storedVal = currentVal;
+          if (pSpec.isOscSelect) {
+            const idx = Math.max(0, Math.min(3, Math.round(currentVal)));
+            storedVal = OSC_TYPES[idx];
+          }
+          
+          track.generator.params[paramName] = storedVal;
+          knob.style.transform = `rotate(${getAngle(currentVal)}deg)`;
+          param.querySelector('.plugin-value').textContent = formatVal(currentVal);
+        });
+        
+        document.addEventListener('mouseup', () => {
+          if (isDraggingKnob) {
+            isDraggingKnob = false;
+            dawHistory.pushState(`Tweak Generator ${paramName}`);
+          }
+        });
+        
         content.appendChild(param)
       })
 
       win.appendChild(header)
       win.appendChild(content)
       host.appendChild(win)
+      
+      openGeneratorWindows.set(trackId, win);
 
       // Close logic
-      win.querySelector('.plugin-close').addEventListener('click', () => win.remove())
+      win.querySelector('.plugin-close').addEventListener('click', () => {
+        win.remove();
+        openGeneratorWindows.delete(trackId);
+      })
 
       // Drag logic
       let isDragging = false
@@ -2422,16 +3848,47 @@ function init() {
           <span class="browser-item-name">${item.name}</span>
         `
         li.addEventListener('click', () => {
-          showPluginWindow(item, type)
-          
-          const currentTrack = engine.getTrack(currentTrackId)
-          if (currentTrack) {
-            if (type === 'effects') {
-              currentTrack.addEffect(item.id)
+          if (type === 'effects') {
+            let fxObj
+            if (currentTrackId === 'master') {
+              fxObj = engine.addEffect(item.id)
+            } else {
+              const currentTrack = engine.getTrack(currentTrackId)
+              if (currentTrack) {
+                fxObj = currentTrack.addEffect(item.id)
+              }
+            }
+            if (fxObj) {
+              fxObj.icon = item.icon
               console.log(`Added ${item.name} to ${currentTrackId}`)
-            } else if (type === 'generators') {
-              console.log(`Switching ${currentTrackId} to ${item.name} mode`)
-              // In a real implementation, we'd change the sound source here
+              showPluginWindow(fxObj)
+              window.updatePluginsFooter()
+              if (window.updateMixerInserts) window.updateMixerInserts()
+              dawHistory.pushState(`Add ${item.name} Plugin`)
+            }
+          } else if (type === 'generators') {
+            if (currentTrackId !== 'master') {
+              const currentTrack = engine.getTrack(currentTrackId)
+              if (currentTrack) {
+                let defaultParams = {}
+                if (item.id === 'sampler') {
+                  defaultParams = { attack: 0.005, decay: 0.1, sustain: 1.0, release: 0.1, cutoff: 20000, resonance: 1.0, pitch: 0 }
+                } else if (item.id === 'monosynth') {
+                  defaultParams = { oscType: 'sawtooth', subOsc: 0.5, attack: 0.05, decay: 0.2, sustain: 0.6, release: 0.3, cutoff: 2000, resonance: 2.0 }
+                } else if (item.id === 'polysynth') {
+                  defaultParams = { oscType: 'triangle', detune: 10, attack: 0.1, decay: 0.3, sustain: 0.7, release: 0.5, cutoff: 5000, resonance: 1.0 }
+                } else if (item.id === 'fmsynth') {
+                  defaultParams = { carrierType: 'sine', modType: 'sine', modIndex: 5, modFreqRatio: 2.0, attack: 0.01, decay: 0.2, sustain: 0.8, release: 0.4 }
+                }
+                
+                currentTrack.generator = {
+                  type: item.id,
+                  params: currentTrack.generator?.type === item.id ? (currentTrack.generator.params || defaultParams) : defaultParams
+                }
+                showGeneratorWindow(currentTrackId)
+                window.updatePluginsFooter()
+                dawHistory.pushState(`Switch Track Generator to ${item.name}`)
+              }
             }
           }
         })
@@ -2442,6 +3899,9 @@ function init() {
 
     populateList(effectsContainer, effects, 'effects')
     populateList(generatorsContainer, generators, 'generators')
+
+    // Initial update of mixer inserts
+    updateMixerInserts()
   })
 }
 
@@ -2499,48 +3959,6 @@ function buildPianoRoll() {
 
   grid.addEventListener('scroll', () => { keysContainer.scrollTop = grid.scrollTop })
   keysContainer.addEventListener('scroll', () => { grid.scrollTop = keysContainer.scrollTop })
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) return;
-      
-      if (selectedNotes.size > 0) {
-        e.preventDefault();
-        const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
-        selectedNotes.forEach(noteEl => {
-          const row = noteEl.closest('.pr-row');
-          if (row) {
-            const noteName = row.dataset.note;
-            const step = parseInt(noteEl.dataset.step);
-            sequencer.removeNoteFromPattern(currentTrackId, noteName, step);
-            const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${noteName}"]`);
-            if (stepSeqRow) {
-              const s = stepSeqRow.querySelector(`[data-step-index="${step}"]`);
-              if (s) s.classList.remove('active');
-            }
-          }
-          noteEl.remove();
-        });
-        selectedNotes.clear();
-      }
-
-      if (selectedClips.size > 0) {
-        e.preventDefault();
-        selectedClips.forEach(clip => {
-          const isPattern = clip.classList.contains('pattern-clip');
-          if (isPattern) {
-            const seqClip = sequencer.patternClips.find(c => c.uiElement === clip);
-            if (seqClip) sequencer.removePatternClip(seqClip);
-          } else {
-            const seqClip = sequencer.clips.find(c => c.uiElement === clip);
-            if (seqClip) sequencer.removeClip(seqClip);
-          }
-          clip.remove();
-        });
-        selectedClips.clear();
-      }
-    }
-  });
 }
 
 init()

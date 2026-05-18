@@ -8,13 +8,253 @@ export function parseNoteToMidi(noteName) {
   return (oct + 1) * 12 + NOTE_TO_MIDI[note];
 }
 
+export function parseNoteToFrequency(noteName) {
+  const midi = parseNoteToMidi(noteName);
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+// Synthetic Impulse Response generator for Reverb
+function createImpulseResponse(ctx, duration=2, decay=2.0) {
+  const sampleRate = ctx.sampleRate;
+  const length = Math.max(1, Math.round(sampleRate * duration));
+  const impulse = ctx.createBuffer(2, length, sampleRate);
+  const left = impulse.getChannelData(0);
+  const right = impulse.getChannelData(1);
+  for (let i = 0; i < length; i++) {
+    const n = 1 - i / length;
+    left[i] = (Math.random() * 2 - 1) * Math.pow(n, decay);
+    right[i] = (Math.random() * 2 - 1) * Math.pow(n, decay);
+  }
+  return impulse;
+}
+
+function createEffectNodes(ctx, type) {
+  const fxObj = { id: Math.random().toString(36).substr(2, 9), type, name: type };
+  let inputNode, outputNode, params, updateParams;
+
+  if (type === 'reverb') {
+    fxObj.name = 'Reverb';
+    let convolver = ctx.createConvolver();
+    const dryNode = ctx.createGain();
+    const wetNode = ctx.createGain();
+    inputNode = ctx.createGain();
+    outputNode = ctx.createGain();
+
+    inputNode.connect(dryNode);
+    inputNode.connect(convolver);
+    convolver.connect(wetNode);
+    dryNode.connect(outputNode);
+    wetNode.connect(outputNode);
+
+    params = { mix: 0.3, size: 2.0, decay: 2.0 };
+    convolver.buffer = createImpulseResponse(ctx, params.size, params.decay);
+    dryNode.gain.value = 1 - params.mix;
+    wetNode.gain.value = params.mix;
+
+    updateParams = (newParams) => {
+      if (newParams.mix !== undefined) {
+        params.mix = newParams.mix;
+        dryNode.gain.value = 1 - params.mix;
+        wetNode.gain.value = params.mix;
+      }
+      if (newParams.size !== undefined || newParams.decay !== undefined) {
+        if (newParams.size !== undefined) params.size = newParams.size;
+        if (newParams.decay !== undefined) params.decay = newParams.decay;
+        
+        try {
+          inputNode.disconnect(convolver);
+          convolver.disconnect(wetNode);
+        } catch(e) {}
+        
+        convolver = ctx.createConvolver();
+        convolver.buffer = createImpulseResponse(ctx, params.size, params.decay);
+        
+        inputNode.connect(convolver);
+        convolver.connect(wetNode);
+      }
+    };
+  } 
+  else if (type === 'delay') { 
+    fxObj.name = 'Delay';
+    inputNode = ctx.createGain();
+    const delayNode = ctx.createDelay(5.0);
+    const feedbackNode = ctx.createGain();
+    const dryNode = ctx.createGain();
+    const wetNode = ctx.createGain();
+    outputNode = ctx.createGain();
+
+    inputNode.connect(dryNode);
+    inputNode.connect(delayNode);
+    delayNode.connect(wetNode);
+    delayNode.connect(feedbackNode);
+    feedbackNode.connect(delayNode);
+    dryNode.connect(outputNode);
+    wetNode.connect(outputNode);
+
+    params = { mix: 0.3, time: 0.3, feedback: 0.5 };
+    dryNode.gain.value = 1 - params.mix;
+    wetNode.gain.value = params.mix;
+    delayNode.delayTime.value = params.time;
+    feedbackNode.gain.value = params.feedback;
+
+    updateParams = (newParams) => {
+      if (newParams.mix !== undefined) {
+        params.mix = newParams.mix;
+        dryNode.gain.value = 1 - params.mix;
+        wetNode.gain.value = params.mix;
+      }
+      if (newParams.time !== undefined) {
+        params.time = newParams.time;
+        delayNode.delayTime.setValueAtTime(params.time, ctx.currentTime);
+      }
+      if (newParams.feedback !== undefined) {
+        params.feedback = newParams.feedback;
+        feedbackNode.gain.setValueAtTime(params.feedback, ctx.currentTime);
+      }
+    };
+  }
+  else if (type === 'distortion') {
+    fxObj.name = 'Distortion';
+    inputNode = ctx.createGain();
+    const shaper = ctx.createWaveShaper();
+    const dryNode = ctx.createGain();
+    const wetNode = ctx.createGain();
+    outputNode = ctx.createGain();
+
+    inputNode.connect(dryNode);
+    inputNode.connect(shaper);
+    shaper.connect(wetNode);
+    dryNode.connect(outputNode);
+    wetNode.connect(outputNode);
+
+    params = { mix: 0.5, amount: 0.5 };
+    dryNode.gain.value = 1 - params.mix;
+    wetNode.gain.value = params.mix;
+    shaper.curve = makeDistortionCurve(params.amount);
+    shaper.oversample = '4x';
+
+    updateParams = (newParams) => {
+      if (newParams.mix !== undefined) {
+        params.mix = newParams.mix;
+        dryNode.gain.value = 1 - params.mix;
+        wetNode.gain.value = params.mix;
+      }
+      if (newParams.amount !== undefined) {
+        params.amount = newParams.amount;
+        shaper.curve = makeDistortionCurve(params.amount);
+      }
+    };
+
+    function makeDistortionCurve(amount) {
+      const k = typeof amount === 'number' ? amount * 100 : 50;
+      const n_samples = 44100;
+      const curve = new Float32Array(n_samples);
+      const deg = Math.PI / 180;
+      for (let i = 0; i < n_samples; ++i) {
+        const x = (i * 2) / n_samples - 1;
+        curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+      }
+      return curve;
+    }
+  }
+  else if (type === 'compressor') {
+    fxObj.name = 'Compressor';
+    inputNode = ctx.createDynamicsCompressor();
+    outputNode = inputNode;
+
+    params = { threshold: -24.0, ratio: 12.0, attack: 0.003, release: 0.25 };
+    inputNode.threshold.value = params.threshold;
+    inputNode.ratio.value = params.ratio;
+    inputNode.attack.value = params.attack;
+    inputNode.release.value = params.release;
+
+    updateParams = (newParams) => {
+      if (newParams.threshold !== undefined) {
+        params.threshold = newParams.threshold;
+        inputNode.threshold.setValueAtTime(params.threshold, ctx.currentTime);
+      }
+      if (newParams.ratio !== undefined) {
+        params.ratio = newParams.ratio;
+        inputNode.ratio.setValueAtTime(params.ratio, ctx.currentTime);
+      }
+      if (newParams.attack !== undefined) {
+        params.attack = newParams.attack;
+        inputNode.attack.setValueAtTime(params.attack, ctx.currentTime);
+      }
+      if (newParams.release !== undefined) {
+        params.release = newParams.release;
+        inputNode.release.setValueAtTime(params.release, ctx.currentTime);
+      }
+    };
+  }
+  else if (type === 'eq') { 
+    fxObj.name = 'Equalizer';
+    inputNode = ctx.createBiquadFilter(); 
+    inputNode.type = 'lowshelf'; 
+    inputNode.frequency.value = 200;
+
+    const midFilter = ctx.createBiquadFilter();
+    midFilter.type = 'peaking';
+    midFilter.frequency.value = 1000;
+    midFilter.Q.value = 1.0;
+
+    const highFilter = ctx.createBiquadFilter();
+    highFilter.type = 'highshelf';
+    highFilter.frequency.value = 5000;
+
+    inputNode.connect(midFilter);
+    midFilter.connect(highFilter);
+    outputNode = highFilter;
+
+    params = { low: 0.0, mid: 0.0, high: 0.0 };
+    inputNode.gain.value = params.low;
+    midFilter.gain.value = params.mid;
+    highFilter.gain.value = params.high;
+
+    updateParams = (newParams) => {
+      if (newParams.low !== undefined) {
+        params.low = newParams.low;
+        inputNode.gain.setValueAtTime(params.low, ctx.currentTime);
+      }
+      if (newParams.mid !== undefined) {
+        params.mid = newParams.mid;
+        midFilter.gain.setValueAtTime(params.mid, ctx.currentTime);
+      }
+      if (newParams.high !== undefined) {
+        params.high = newParams.high;
+        highFilter.gain.setValueAtTime(params.high, ctx.currentTime);
+      }
+    };
+  }
+  else {
+    fxObj.name = type;
+    inputNode = ctx.createGain();
+    outputNode = inputNode;
+    params = {};
+    updateParams = () => {};
+  }
+
+  fxObj.inputNode = inputNode;
+  fxObj.outputNode = outputNode;
+  fxObj.node = inputNode;
+  fxObj.params = params;
+  fxObj.updateParams = updateParams;
+
+  return fxObj;
+}
+
 class Track {
   constructor(audioContext, masterNode, name) {
     this.ctx = audioContext;
+    this.masterNode = masterNode; // Store reference to masterNode
     this.name = name;
     
     // Create track nodes
     this.gainNode = this.ctx.createGain();
+    this.pannerNode = this.ctx.createStereoPanner();
+    this.pannerNode.pan.value = 0.0;
+    this.pan = 0.0;
+    
     this.analyserNode = this.ctx.createAnalyser();
     this.analyserNode.fftSize = 256;
     
@@ -28,6 +268,20 @@ class Track {
     this.isSoloed = false;
     this.isArmed = false;
     
+    // Generator default parameters
+    this.generator = {
+      type: 'sampler',
+      params: {
+        attack: 0.005,
+        decay: 0.1,
+        sustain: 1.0,
+        release: 0.1,
+        cutoff: 20000,
+        resonance: 1.0,
+        pitch: 0
+      }
+    };
+    
     // Sampler Data
     this.instrumentBuffer = null;
     this.instrumentRootMidi = 60; // Default C4
@@ -36,39 +290,65 @@ class Track {
     this.gainNode.gain.value = this.baseVolume; // default 80%
     
     // Initial routing
-    this.rebuildChain(masterNode);
+    this.rebuildChain();
   }
 
-  rebuildChain(masterNode) {
+  setPan(value) {
+    this.pan = Math.max(-1, Math.min(1, value));
+    if (this.pannerNode && this.pannerNode.pan) {
+      this.pannerNode.pan.setValueAtTime(this.pan, this.ctx.currentTime);
+    }
+  }
+
+  rebuildChain() {
     this.inputNode.disconnect();
-    this.effects.forEach(fx => { if (fx.node) fx.node.disconnect(); });
+    this.effects.forEach(fx => { 
+      // Do NOT disconnect fx.inputNode because it severs internal connections of the plugin!
+      // Only disconnect outputs to clean up the chain routing.
+      if (fx.outputNode) fx.outputNode.disconnect(); 
+      if (fx.node && fx.node !== fx.inputNode) fx.node.disconnect(); // Fallback for old simple effects
+    });
     this.analyserNode.disconnect();
     
     let lastNode = this.inputNode;
     this.effects.forEach(fx => {
-      if (fx.node) {
-        lastNode.connect(fx.node);
-        lastNode = fx.node;
+      const inNode = fx.inputNode || fx.node;
+      const outNode = fx.outputNode || fx.node;
+      if (inNode && outNode) {
+        lastNode.connect(inNode);
+        lastNode = outNode;
       }
     });
     
     lastNode.connect(this.analyserNode);
     this.analyserNode.connect(this.gainNode);
-    if (masterNode) this.gainNode.connect(masterNode);
+    
+    // Always disconnect and reconnect to the stored masterNode to ensure clean output routing
+    try { this.gainNode.disconnect(); } catch (e) {}
+    try { this.pannerNode.disconnect(); } catch (e) {}
+    if (this.masterNode) {
+      this.gainNode.connect(this.pannerNode);
+      this.pannerNode.connect(this.masterNode);
+    }
   }
 
   addEffect(type) {
-    let node;
-    if (type === 'reverb') node = this.ctx.createGain(); 
-    else if (type === 'delay') { node = this.ctx.createDelay(); node.delayTime.value = 0.3; }
-    else if (type === 'distortion') node = this.ctx.createWaveShaper();
-    else if (type === 'eq') { node = this.ctx.createBiquadFilter(); node.type = 'peaking'; }
-    else node = this.ctx.createGain();
-    
-    const fxObj = { id: Math.random().toString(36).substr(2, 9), type, node };
+    const fxObj = createEffectNodes(this.ctx, type);
     this.effects.push(fxObj);
     this.rebuildChain();
     return fxObj;
+  }
+
+  removeEffect(id) {
+    const idx = this.effects.findIndex(fx => fx.id === id);
+    if (idx !== -1) {
+      const fx = this.effects[idx];
+      if (fx.inputNode) fx.inputNode.disconnect();
+      if (fx.outputNode) fx.outputNode.disconnect();
+      if (fx.node) fx.node.disconnect();
+      this.effects.splice(idx, 1);
+      this.rebuildChain();
+    }
   }
 
   setVolume(value) {
@@ -103,15 +383,57 @@ class AudioEngine {
     
     this.masterGain.gain.value = 0.8; // Default master volume
     
-    // Master -> Analyser -> Hardware Destination
-    this.masterGain.connect(this.masterAnalyser);
-    this.masterAnalyser.connect(this.ctx.destination);
+    // Master effects
+    this.effects = [];
+    
+    this.rebuildMasterChain();
 
     // Track registry
     this.tracks = new Map();
     this.soloedTracks = new Set();
     
     console.log('AudioEngine initialized');
+  }
+
+  rebuildMasterChain() {
+    this.masterGain.disconnect();
+    this.effects.forEach(fx => {
+      if (fx.outputNode) fx.outputNode.disconnect();
+      if (fx.node && fx.node !== fx.inputNode) fx.node.disconnect();
+    });
+    this.masterAnalyser.disconnect();
+    
+    let lastNode = this.masterGain;
+    this.effects.forEach(fx => {
+      const inNode = fx.inputNode || fx.node;
+      const outNode = fx.outputNode || fx.node;
+      if (inNode && outNode) {
+        lastNode.connect(inNode);
+        lastNode = outNode;
+      }
+    });
+    
+    lastNode.connect(this.masterAnalyser);
+    this.masterAnalyser.connect(this.ctx.destination);
+  }
+
+  addEffect(type) {
+    const fxObj = createEffectNodes(this.ctx, type);
+    this.effects.push(fxObj);
+    this.rebuildMasterChain();
+    return fxObj;
+  }
+
+  removeEffect(id) {
+    const idx = this.effects.findIndex(fx => fx.id === id);
+    if (idx !== -1) {
+      const fx = this.effects[idx];
+      if (fx.inputNode) fx.inputNode.disconnect();
+      if (fx.outputNode) fx.outputNode.disconnect();
+      if (fx.node) fx.node.disconnect();
+      this.effects.splice(idx, 1);
+      this.rebuildMasterChain();
+    }
   }
 
   updateTrackVolumes() {
@@ -221,23 +543,189 @@ class AudioEngine {
 
   playNote(trackId, noteName, time, duration = 0) {
     const track = this.getTrack(trackId);
-    if (!track || !track.instrumentBuffer) return null;
+    if (!track) return null;
     
+    const gen = track.generator || { type: 'sampler', params: { attack: 0.005, decay: 0.1, sustain: 1.0, release: 0.1, cutoff: 20000, resonance: 1.0, pitch: 0 } };
+    const frequency = parseNoteToFrequency(noteName);
     const midiNote = parseNoteToMidi(noteName);
-    const semitones = midiNote - track.instrumentRootMidi;
-    const rate = Math.pow(2, semitones / 12);
+    const now = Math.max(time, this.ctx.currentTime);
+    const noteDuration = duration > 0 ? duration : 0.2;
     
-    const source = this.ctx.createBufferSource();
-    source.buffer = track.instrumentBuffer;
-    source.playbackRate.value = rate;
-    
-    source.connect(track.inputNode);
-    source.start(time);
-    if (duration > 0) {
-      // simple hard stop (could click, but good enough for a basic sampler)
-      source.stop(time + duration);
+    if (gen.type === 'sampler') {
+      if (!track.instrumentBuffer) return null;
+      const pitchOffset = gen.params.pitch || 0;
+      const semitones = (midiNote + pitchOffset) - track.instrumentRootMidi;
+      const rate = Math.pow(2, semitones / 12);
+      
+      const source = this.ctx.createBufferSource();
+      source.buffer = track.instrumentBuffer;
+      source.playbackRate.value = rate;
+      
+      const envelope = this.ctx.createGain();
+      const attack = gen.params.attack !== undefined ? gen.params.attack : 0.005;
+      const decay = gen.params.decay !== undefined ? gen.params.decay : 0.1;
+      const sustain = gen.params.sustain !== undefined ? gen.params.sustain : 1.0;
+      const release = gen.params.release !== undefined ? gen.params.release : 0.1;
+      
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = gen.params.cutoff !== undefined ? gen.params.cutoff : 20000;
+      filter.Q.value = gen.params.resonance !== undefined ? gen.params.resonance : 1.0;
+      
+      source.connect(filter);
+      filter.connect(envelope);
+      envelope.connect(track.inputNode);
+      
+      envelope.gain.setValueAtTime(0, now);
+      envelope.gain.linearRampToValueAtTime(1.0, now + attack);
+      envelope.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+      
+      source.start(now);
+      
+      const releaseTime = now + noteDuration;
+      envelope.gain.setValueAtTime(sustain, releaseTime);
+      envelope.gain.linearRampToValueAtTime(0, releaseTime + release);
+      source.stop(releaseTime + release);
+      return source;
     }
-    return source;
+    
+    else if (gen.type === 'monosynth' || gen.type === 'polysynth') {
+      const oscType = gen.params.oscType || 'sawtooth';
+      const attack = gen.params.attack !== undefined ? gen.params.attack : 0.05;
+      const decay = gen.params.decay !== undefined ? gen.params.decay : 0.2;
+      const sustain = gen.params.sustain !== undefined ? gen.params.sustain : 0.6;
+      const release = gen.params.release !== undefined ? gen.params.release : 0.3;
+      const cutoff = gen.params.cutoff !== undefined ? gen.params.cutoff : 2000;
+      const resonance = gen.params.resonance !== undefined ? gen.params.resonance : 1.0;
+      
+      // Main Oscillator
+      const osc = this.ctx.createOscillator();
+      osc.type = oscType;
+      osc.frequency.setValueAtTime(frequency, now);
+      
+      // Secondary Oscillator (sub or detuned second voice)
+      let subOsc = null;
+      let osc2 = null;
+      const synthGain = this.ctx.createGain();
+      
+      if (gen.type === 'monosynth') {
+        // Add Sub-Oscillator (1 octave down triangle wave for bass thickness)
+        const subAmt = gen.params.subOsc !== undefined ? gen.params.subOsc : 0.5;
+        if (subAmt > 0) {
+          subOsc = this.ctx.createOscillator();
+          subOsc.type = 'triangle';
+          subOsc.frequency.setValueAtTime(frequency / 2, now); // 1 octave down
+          
+          const subGain = this.ctx.createGain();
+          subGain.gain.setValueAtTime(subAmt * 0.4, now);
+          
+          subOsc.connect(subGain);
+          subGain.connect(synthGain);
+        }
+      } else if (gen.type === 'polysynth') {
+        // Add detuned second oscillator for fat supersaw/superpoly voices
+        const detuneVal = gen.params.detune !== undefined ? gen.params.detune : 10;
+        if (detuneVal > 0) {
+          osc2 = this.ctx.createOscillator();
+          osc2.type = oscType;
+          osc2.frequency.setValueAtTime(frequency, now);
+          osc2.detune.setValueAtTime(detuneVal, now);
+          
+          const osc2Gain = this.ctx.createGain();
+          osc2Gain.gain.setValueAtTime(0.3, now);
+          
+          osc2.connect(osc2Gain);
+          osc2Gain.connect(synthGain);
+        }
+      }
+      
+      const envelope = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(cutoff, now);
+      filter.Q.setValueAtTime(resonance, now);
+      
+      // Connections
+      osc.connect(synthGain);
+      synthGain.connect(filter);
+      filter.connect(envelope);
+      envelope.connect(track.inputNode);
+      
+      // Amplitude envelope
+      envelope.gain.setValueAtTime(0, now);
+      envelope.gain.linearRampToValueAtTime(0.4, now + attack); // Keep levels safe
+      envelope.gain.linearRampToValueAtTime(sustain * 0.4, now + attack + decay);
+      
+      osc.start(now);
+      if (subOsc) subOsc.start(now);
+      if (osc2) osc2.start(now);
+      
+      const releaseTime = now + noteDuration;
+      envelope.gain.setValueAtTime(sustain * 0.4, releaseTime);
+      envelope.gain.linearRampToValueAtTime(0, releaseTime + release);
+      
+      osc.stop(releaseTime + release);
+      if (subOsc) subOsc.stop(releaseTime + release);
+      if (osc2) osc2.stop(releaseTime + release);
+      
+      return osc;
+    }
+    
+    else if (gen.type === 'fmsynth') {
+      const carrierType = gen.params.carrierType || 'sine';
+      const modType = gen.params.modType || 'sine';
+      const modIndex = gen.params.modIndex !== undefined ? gen.params.modIndex : 5;
+      const modRatio = gen.params.modFreqRatio !== undefined ? gen.params.modFreqRatio : 2.0;
+      
+      const attack = gen.params.attack !== undefined ? gen.params.attack : 0.01;
+      const decay = gen.params.decay !== undefined ? gen.params.decay : 0.2;
+      const sustain = gen.params.sustain !== undefined ? gen.params.sustain : 0.8;
+      const release = gen.params.release !== undefined ? gen.params.release : 0.4;
+      
+      // Carrier
+      const carrier = this.ctx.createOscillator();
+      carrier.type = carrierType;
+      carrier.frequency.setValueAtTime(frequency, now);
+      
+      // Modulator
+      const modulator = this.ctx.createOscillator();
+      modulator.type = modType;
+      modulator.frequency.setValueAtTime(frequency * modRatio, now);
+      
+      // Modulation Index Gain Node
+      const modGain = this.ctx.createGain();
+      modGain.gain.setValueAtTime(frequency * modRatio * modIndex, now);
+      
+      // Amp Envelope
+      const envelope = this.ctx.createGain();
+      
+      // Modulator -> ModGain -> Carrier Frequency
+      modulator.connect(modGain);
+      modGain.connect(carrier.frequency);
+      
+      // Carrier -> Envelope -> inputNode
+      carrier.connect(envelope);
+      envelope.connect(track.inputNode);
+      
+      // Amplitude ADSR
+      envelope.gain.setValueAtTime(0, now);
+      envelope.gain.linearRampToValueAtTime(0.3, now + attack);
+      envelope.gain.linearRampToValueAtTime(sustain * 0.3, now + attack + decay);
+      
+      carrier.start(now);
+      modulator.start(now);
+      
+      const releaseTime = now + noteDuration;
+      envelope.gain.setValueAtTime(sustain * 0.3, releaseTime);
+      envelope.gain.linearRampToValueAtTime(0, releaseTime + release);
+      
+      carrier.stop(releaseTime + release);
+      modulator.stop(releaseTime + release);
+      
+      return carrier;
+    }
+    
+    return null;
   }
 }
 

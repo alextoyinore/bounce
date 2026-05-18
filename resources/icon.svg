@@ -1,3 +1,21 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M100 512C100 512 250 200 400 512C550 824 700 512 700 512M700 512C700 512 800 350 924 512" stroke="#334155" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="vividGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00FF87" />
+      <stop offset="100%" stop-color="#60EFFF" />
+    </linearGradient>
+  </defs>
+  <!-- Rounded corner background as requested -->
+  <rect width="1024" height="1024" rx="224" fill="#0f172a"/>
+  
+  <!-- Bouncing wave path -->
+  <path d="M 112 762 
+           Q 212 262 312 762 
+           Q 412 262 512 762 
+           Q 612 262 712 762 
+           Q 812 262 912 762" 
+        stroke="url(#vividGradient)" 
+        stroke-width="72" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
 </svg>

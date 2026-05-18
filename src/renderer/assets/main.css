@@ -714,7 +714,7 @@ main {
   color: var(--record-color);
 }
 
-.track-vol-knob {
+.track-vol-knob, .track-pan-knob {
   width: 24px;
   height: 24px;
   background: radial-gradient(circle at 30% 30%, #3e3e48, var(--bg-color));
@@ -727,7 +727,7 @@ main {
   transition: border-color 0.15s;
 }
 
-.track-vol-knob:hover {
+.track-vol-knob:hover, .track-pan-knob:hover {
   border-color: var(--accent-color);
 }
 
@@ -737,11 +737,10 @@ main {
   left: 50%;
   width: 2px;
   height: 8px;
-  background: var(--accent-color);
+  background: dimgray;
   transform-origin: bottom center;
   margin-left: -1px;
   border-radius: 1px;
-  box-shadow: 0 0 4px var(--accent-color);
 }
 
 .arrangement-view {
@@ -1691,3 +1690,278 @@ footer {
   background: rgba(0, 229, 255, 0.05);
   border-left: 2px solid var(--accent-color);
 }
+
+/* ======== ACTIVE PLUGINS FOOTER TAB ======== */
+.active-plugin-item {
+  background: linear-gradient(135deg, rgba(30, 30, 40, 0.7), rgba(20, 20, 25, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-left: 3px solid var(--accent-color);
+  border-radius: 6px;
+  padding: 10px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+  min-width: 180px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.active-plugin-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0, 229, 255, 0.4);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(0, 229, 255, 0.2);
+}
+
+.active-plugin-item:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.plugin-item-icon {
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.plugin-item-details {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+}
+
+.plugin-item-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.plugin-item-track {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.plugin-item-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--accent-color);
+  box-shadow: 0 0 8px var(--accent-color);
+  animation: pulse-status 2s infinite alternate;
+}
+
+.plugin-item-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.plugin-item-remove-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: all 0.15s ease-out;
+  opacity: 0.4;
+}
+
+.active-plugin-item:hover .plugin-item-remove-btn {
+  opacity: 0.8;
+}
+
+.plugin-item-remove-btn:hover {
+  color: #ff3366 !important;
+  background: rgba(255, 51, 102, 0.1);
+  opacity: 1 !important;
+}
+
+@keyframes pulse-status {
+  0% {
+    opacity: 0.5;
+    box-shadow: 0 0 2px var(--accent-color);
+  }
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 10px var(--accent-color);
+  }
+}
+
+/* Glassmorphic Toast Notification Overlay */
+.daw-toast {
+  position: fixed;
+  top: 52px;
+  left: 50%;
+  transform: translate(-50%, -20px);
+  background: rgba(18, 18, 24, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--accent-color);
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-family: 'Outfit', 'Inter', sans-serif;
+  font-weight: 600;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 12px rgba(0, 229, 255, 0.15);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10000;
+  transition: all 0.35s cubic-bezier(0.19, 1, 0.22, 1);
+  letter-spacing: 0.02em;
+}
+
+.daw-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* Glassmorphic Central HUD Overlay */
+.daw-hud {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.85);
+  background: rgba(18, 18, 24, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  padding: 24px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8), 0 0 32px rgba(0, 229, 255, 0.1);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 20000;
+  transition: opacity 0.2s cubic-bezier(0.19, 1, 0.22, 1), transform 0.2s cubic-bezier(0.19, 1, 0.22, 1);
+  min-width: 140px;
+  min-height: 140px;
+}
+
+.daw-hud.show {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.daw-hud-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.5));
+}
+
+.daw-hud-text {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-color);
+  font-family: 'JetBrains Mono', monospace;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+}
+
+/* ======== INTERACTIVE MIXER INSERTS ======== */
+.channel-inserts {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 8px 12px 8px;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.insert-slot {
+  height: 18px;
+  border-radius: 4px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.01);
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 0.05em;
+  font-family: 'Outfit', sans-serif;
+}
+
+.insert-slot.active {
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  background: rgba(0, 229, 255, 0.06);
+  color: var(--accent-color);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  text-shadow: 0 0 6px rgba(0, 229, 255, 0.2);
+}
+
+.insert-slot.active:hover {
+  border-color: var(--accent-color);
+  background: rgba(0, 229, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 8px rgba(0, 229, 255, 0.25);
+  transform: scale(1.02);
+}
+
+.insert-slot.active:active {
+  transform: scale(0.98);
+}
+
+/* Scoped Track Context Menu Styling */
+.track-context-menu {
+  position: fixed;
+  z-index: 10000;
+  background: rgba(30, 30, 40, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(0, 229, 255, 0.1);
+  padding: 6px 0;
+  min-width: 160px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+}
+
+.track-context-item {
+  padding: 8px 16px;
+  color: var(--text-color);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.track-context-item:hover {
+  background: var(--accent-color);
+  color: #000;
+}
+
+.track-context-item.danger:hover {
+  background: #ff3b30;
+  color: #fff;
+}
