@@ -13,7 +13,8 @@ const api = {
   installSoundPack: () => ipcRenderer.invoke('app:installSoundPack'),
   getDefaultProjectsPath: () => ipcRenderer.invoke('app:getDefaultProjectsPath'),
   mkdir: (dirPath) => ipcRenderer.invoke('fs:mkdir', dirPath),
-  exists: (filePath) => ipcRenderer.invoke('fs:exists', filePath)
+  exists: (filePath) => ipcRenderer.invoke('fs:exists', filePath),
+  onOpenFile: (callback) => ipcRenderer.on('open-file', (_event, path) => callback(path))
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

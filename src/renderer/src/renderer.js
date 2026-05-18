@@ -9,6 +9,26 @@ function init() {
     let currentProjectPath = null
     let currentTrackId = 'kick' // Initialize with a default
     
+    // OS File Association listener
+    if (window.api && window.api.onOpenFile) {
+      window.api.onOpenFile(async (filePath) => {
+        try {
+          const buffer = await window.api.readFile(filePath)
+          if (buffer) {
+            const decoder = new TextDecoder('utf-8')
+            const jsonStr = decoder.decode(buffer)
+            const data = JSON.parse(jsonStr)
+            await loadProject(data)
+            currentProjectPath = filePath
+            showToast(`Loaded: ${filePath.split(/[/\\]/).pop()}`)
+          }
+        } catch (err) {
+          console.error("Failed to open file from OS:", err)
+          showToast("Failed to load project from OS")
+        }
+      })
+    }
+    
     // ── Toast Notification System ──────────────────────────────────
     function showToast(message) {
       let toast = document.querySelector('.daw-toast')
@@ -1311,14 +1331,44 @@ function init() {
     const trackUIMap = {}
     
     // Dynamic Track UI Generation
-    function createTrackUI(trackId, trackName, defaultColor) {
+    function createTrackUI(trackId, trackName, defaultColor, refTrackId = null, position = null) {
       // 1. Initialize track in engine
       tracks[trackName] = engine.createTrack(trackId, trackName)
       trackUIMap[trackId] = { headers: [], mixers: [], seqRows: [] }
 
+      // Find reference elements for insertion
+      let refHeader = null;
+      let refAutoLabel = null;
+      let refLane = null;
+      let refAutoLane = null;
+      let refChannel = null;
+      let refSeqRow = null;
+
+      if (refTrackId && position) {
+        const refUI = trackUIMap[refTrackId];
+        if (refUI) {
+          if (refUI.headers && refUI.headers[0]) {
+            refHeader = refUI.headers[0].headerEl;
+            if (refHeader) {
+              refAutoLabel = refHeader.nextElementSibling;
+            }
+            refLane = refUI.headers[0].laneEl;
+            if (refLane) {
+              refAutoLane = refLane.nextElementSibling;
+            }
+          }
+          if (refUI.mixers && refUI.mixers[0]) {
+            refChannel = refUI.mixers[0].channelEl;
+          }
+          if (refUI.seqRows && refUI.seqRows[0]) {
+            refSeqRow = refUI.seqRows[0];
+          }
+        }
+      }
+
       // 2. Track Header
       const headerContainer = document.getElementById('track-headers-container')
-      const trackCount = headerContainer.children.length + 1
+      const trackCount = headerContainer.querySelectorAll('.track-header').length + 1
       const header = document.createElement('div')
       header.className = 'track-header'
       header.innerHTML = `
@@ -1341,14 +1391,28 @@ function init() {
           </div>
         </div>
       `
-      headerContainer.appendChild(header)
+      if (refHeader && position === 'before') {
+        headerContainer.insertBefore(header, refHeader);
+      } else if (refHeader && position === 'after') {
+        const nextEl = refAutoLabel ? refAutoLabel.nextSibling : refHeader.nextSibling;
+        headerContainer.insertBefore(header, nextEl);
+      } else {
+        headerContainer.appendChild(header);
+      }
 
       // 3. Track Lane
       const laneContainer = document.getElementById('track-lanes-container')
       const lane = document.createElement('div')
       lane.className = 'track-lane'
       lane.dataset.trackId = trackId
-      laneContainer.appendChild(lane)
+      if (refLane && position === 'before') {
+        laneContainer.insertBefore(lane, refLane);
+      } else if (refLane && position === 'after') {
+        const nextEl = refAutoLane ? refAutoLane.nextSibling : refLane.nextSibling;
+        laneContainer.insertBefore(lane, nextEl);
+      } else {
+        laneContainer.appendChild(lane);
+      }
 
       // Automation label (header column)
       const autoLabel = document.createElement('div')
@@ -1368,7 +1432,14 @@ function init() {
           <option value="gen.pitch">Pitch</option>
         </select>
       `
-      headerContainer.appendChild(autoLabel)
+      if (refHeader && position === 'before') {
+        headerContainer.insertBefore(autoLabel, refHeader);
+      } else if (refHeader && position === 'after') {
+        const nextEl = refAutoLabel ? refAutoLabel.nextSibling : refHeader.nextSibling;
+        headerContainer.insertBefore(autoLabel, nextEl);
+      } else {
+        headerContainer.appendChild(autoLabel);
+      }
 
       // Automation canvas lane (lane column)
       const autoLane = document.createElement('div')
@@ -1379,7 +1450,14 @@ function init() {
       autoCanvas.height = 60
       autoCanvas.width = 30000
       autoLane.appendChild(autoCanvas)
-      laneContainer.appendChild(autoLane)
+      if (refLane && position === 'before') {
+        laneContainer.insertBefore(autoLane, refLane);
+      } else if (refLane && position === 'after') {
+        const nextEl = refAutoLane ? refAutoLane.nextSibling : refLane.nextSibling;
+        laneContainer.insertBefore(autoLane, nextEl);
+      } else {
+        laneContainer.appendChild(autoLane);
+      }
 
       // 4. Mixer Channel
       const mixerContainer = document.getElementById('mixer-channels-container')
@@ -1420,7 +1498,13 @@ function init() {
           <div class="channel-db">0.0dB</div>
         </div>
       `
-      mixerContainer.appendChild(channel)
+      if (refChannel && position === 'before') {
+        mixerContainer.insertBefore(channel, refChannel);
+      } else if (refChannel && position === 'after') {
+        mixerContainer.insertBefore(channel, refChannel.nextSibling);
+      } else {
+        mixerContainer.appendChild(channel);
+      }
 
       // 5. Sequencer Row
       const seqContainer = document.getElementById('seq-rows-container')
@@ -1431,7 +1515,13 @@ function init() {
         <div class="seq-label">${trackName}</div>
         <div class="seq-steps" data-instrument="${trackId}" data-note="C1"></div>
       `
-      seqContainer.appendChild(seqRow)
+      if (refSeqRow && position === 'before') {
+        seqContainer.insertBefore(seqRow, refSeqRow);
+      } else if (refSeqRow && position === 'after') {
+        seqContainer.insertBefore(seqRow, refSeqRow.nextSibling);
+      } else {
+        seqContainer.appendChild(seqRow);
+      }
 
       // 6. Piano Roll Dropdown Option
       const prSelect = document.getElementById('pr-track-select')
@@ -1710,6 +1800,9 @@ function init() {
           <div class="track-context-item" id="ctx-color">Change Color</div>
           <div class="track-context-item" id="ctx-properties">Sound Properties</div>
           <div class="track-context-item" id="ctx-rename">Rename Track</div>
+          <div class="track-context-item" id="ctx-insert-before">Insert Track Before</div>
+          <div class="track-context-item" id="ctx-insert-after">Insert Track After</div>
+          <div class="track-context-item" id="ctx-duplicate">Duplicate Track</div>
           <div class="track-context-item danger" id="ctx-delete">Delete Track</div>
         `;
 
@@ -1766,6 +1859,21 @@ function init() {
           }, 50);
         });
 
+        menu.querySelector('#ctx-insert-before').addEventListener('click', () => {
+          menu.remove();
+          insertNewTrack(trackId, 'before');
+        });
+
+        menu.querySelector('#ctx-insert-after').addEventListener('click', () => {
+          menu.remove();
+          insertNewTrack(trackId, 'after');
+        });
+
+        menu.querySelector('#ctx-duplicate').addEventListener('click', () => {
+          menu.remove();
+          duplicateTrack(trackId);
+        });
+
         menu.querySelector('#ctx-delete').addEventListener('click', () => {
           menu.remove();
           header.querySelector('.remove-track-btn').click();
@@ -1801,6 +1909,7 @@ function init() {
           autoLane.remove();
           channel.remove();
           seqRow.remove();
+          reindexTrackNumbers();
           const prSelect = document.getElementById('pr-track-select');
           if (prSelect) {
             const opt = Array.from(prSelect.options).find(o => o.value === trackId);
@@ -2086,6 +2195,179 @@ function init() {
       colorPicker.dispatchEvent(new Event('input'))
 
       if (window.updateMixerInserts) window.updateMixerInserts()
+      reindexTrackNumbers();
+    }
+
+    function reindexTrackNumbers() {
+      const headers = document.querySelectorAll('#track-headers-container .track-header');
+      headers.forEach((h, index) => {
+        const numEl = h.querySelector('.track-number');
+        if (numEl) {
+          numEl.textContent = index + 1;
+        }
+      });
+    }
+
+    function insertNewTrack(refTrackId, position) {
+      const trackId = `track_${customTrackCounter}`;
+      const trackName = `Track ${customTrackCounter + 3}`;
+      const defaultColor = '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+      createTrackUI(trackId, trackName, defaultColor, refTrackId, position);
+      customTrackCounter++;
+      dawHistory.pushState('Insert Track');
+    }
+
+    function duplicateTrack(trackId) {
+      const oldTrackObj = engine.getTrack(trackId);
+      if (!oldTrackObj) return;
+
+      const oldTrackUI = trackUIMap[trackId];
+      if (!oldTrackUI) return;
+
+      // 1. Get original properties
+      const originalTrackName = oldTrackObj.name || 'Track';
+      const newTrackName = `${originalTrackName} (Copy)`;
+      
+      // Get track color from old header
+      let originalTrackColor = '#00e5ff';
+      if (oldTrackUI.headers && oldTrackUI.headers[0]) {
+        const colorPicker = oldTrackUI.headers[0].colorPicker;
+        if (colorPicker) {
+          originalTrackColor = colorPicker.value;
+        }
+      }
+
+      // 2. Generate new track ID
+      const newTrackId = `track_${customTrackCounter}`;
+      customTrackCounter++;
+
+      // 3. Duplicate pattern data in sequencer
+      if (sequencer.patterns[trackId]) {
+        sequencer.patterns[newTrackId] = JSON.parse(JSON.stringify(sequencer.patterns[trackId]));
+      }
+
+      // 4. Create Track UI and Engine nodes
+      createTrackUI(newTrackId, newTrackName, originalTrackColor, trackId, 'after');
+
+      // Get newly created track object
+      const newTrackObj = engine.getTrack(newTrackId);
+      if (newTrackObj) {
+        // Copy volume & pan
+        newTrackObj.baseVolume = oldTrackObj.baseVolume;
+        newTrackObj.pan = oldTrackObj.pan;
+        
+        // Copy sampler instrument properties
+        newTrackObj.instrumentBuffer = oldTrackObj.instrumentBuffer;
+        newTrackObj._instrumentPath = oldTrackObj._instrumentPath;
+        newTrackObj.instrumentRootMidi = oldTrackObj.instrumentRootMidi;
+
+        // Copy generator settings
+        if (oldTrackObj.generator) {
+          newTrackObj.generator = JSON.parse(JSON.stringify(oldTrackObj.generator));
+        }
+
+        // Copy EQ values and apply to filters
+        if (oldTrackObj.eqValues) {
+          newTrackObj.eqValues = JSON.parse(JSON.stringify(oldTrackObj.eqValues));
+          Object.keys(newTrackObj.eqValues).forEach(band => {
+            newTrackObj.setEQ(band, newTrackObj.eqValues[band]);
+          });
+        }
+
+        // Copy automation points
+        if (oldTrackObj.automations) {
+          newTrackObj.automations = JSON.parse(JSON.stringify(oldTrackObj.automations));
+        }
+
+        // Copy effects and their parameter values
+        if (oldTrackObj.effects && oldTrackObj.effects.length > 0) {
+          oldTrackObj.effects.forEach(fx => {
+            const newFx = newTrackObj.addEffect(fx.type);
+            if (newFx && newFx.updateParams && fx.params) {
+              newFx.updateParams({ ...fx.params });
+            }
+          });
+        }
+      }
+
+      // 5. Update new track's UI Knobs / Faders / EQ Knobs to match original track values
+      const newTrackUI = trackUIMap[newTrackId];
+      if (newTrackUI) {
+        // Sync volume fader / knob
+        if (newTrackUI.updateKnob) {
+          newTrackUI.updateKnob((oldTrackObj.baseVolume / 1.5) * 100);
+        }
+        
+        // Sync pan knob
+        if (newTrackUI.updatePan) {
+          newTrackUI.updatePan((oldTrackObj.pan * 50) + 50);
+        }
+
+        // Sync EQ knobs rotations in the UI
+        if (oldTrackObj.eqValues) {
+          const newChannelEl = newTrackUI.mixers[0]?.channelEl;
+          if (newChannelEl) {
+            const eqKnobs = newChannelEl.querySelectorAll('.eq-knob');
+            eqKnobs.forEach(knob => {
+              const band = knob.dataset.band;
+              const val = oldTrackObj.eqValues[band] || 0;
+              const deg = (val / 12) * 135;
+              knob.style.transform = `rotate(${deg}deg)`;
+              const bandName = band.charAt(0).toUpperCase() + band.slice(1);
+              const sign = val > 0 ? '+' : '';
+              knob.title = `${bandName}: ${sign}${val.toFixed(1)} dB`;
+            });
+          }
+        }
+      }
+
+      // 6. Duplicate Arranger clips (Audio and Pattern clips)
+      const newLane = document.querySelector(`.track-lane[data-track-id="${newTrackId}"]`);
+      if (newLane) {
+        // A. Pattern clips
+        const originalPatternClips = sequencer.patternClips.filter(pc => pc.trackId === trackId);
+        originalPatternClips.forEach(pc => {
+          createPatternClipUI(newTrackId, pc.startTime, pc.duration, newLane);
+        });
+
+        // B. Audio clips
+        const originalAudioClips = sequencer.clips.filter(c => c.trackId === trackId);
+        originalAudioClips.forEach(c => {
+          const clipEl = document.createElement('div');
+          clipEl.className = 'clip audio-clip';
+          if (c.uiElement && c.uiElement.classList.contains('recorded-clip')) {
+            clipEl.className = 'clip audio-clip recorded-clip';
+            clipEl.textContent = '● REC';
+          } else {
+            clipEl.textContent = c._fileName || 'Audio Clip';
+          }
+          clipEl.style.left = `${c.startTime * sequencer.pxPerSecond}px`;
+          clipEl.style.width = `${Math.max(20, c.duration * sequencer.pxPerSecond)}px`;
+          clipEl.dataset.startTime = c.startTime;
+          clipEl.dataset.duration = c.duration;
+          
+          const rh = document.createElement('div');
+          rh.className = 'resize-handle';
+          clipEl.appendChild(rh);
+          newLane.appendChild(clipEl);
+
+          sequencer.addClip({
+            buffer: c.buffer,
+            blob: c.blob,
+            startTime: c.startTime,
+            duration: c.duration,
+            originalDuration: c.originalDuration,
+            trackId: newTrackId,
+            scheduled: false,
+            uiElement: clipEl,
+            _filePath: c._filePath,
+            _fileName: c._fileName
+          });
+        });
+      }
+
+      // 7. Push DAW History state
+      dawHistory.pushState('Duplicate Track');
     }
 
     // Initialize Default Tracks

@@ -4,10 +4,47 @@ import * as fs from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
+let mainWindow = null
+let fileToOpen = null
+
+// macOS: emitted when someone double clicks a file
+app.on('open-file', (event, path) => {
+  event.preventDefault()
+  fileToOpen = path
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('open-file', path)
+    fileToOpen = null
+  }
+})
+
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, we should focus our window
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+      // Find the file path from the command line arguments
+      const path = commandLine.find(arg => arg.endsWith('.bounce'))
+      if (path) {
+        mainWindow.webContents.send('open-file', path)
+      }
+    }
+  })
+
+  // Windows/Linux initial launch file capture
+  const initialPath = process.argv.find(arg => arg.endsWith('.bounce'))
+  if (initialPath) {
+    fileToOpen = initialPath
+  }
+}
+
 function createWindow() {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 1250,
+  mainWindow = new BrowserWindow({
+    width: 1440,
     height: 720,
     show: false,
     frame: false,
@@ -35,6 +72,13 @@ function createWindow() {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (fileToOpen) {
+      mainWindow.webContents.send('open-file', fileToOpen)
+      fileToOpen = null
+    }
+  })
 }
 
 // This method will be called when Electron has finished

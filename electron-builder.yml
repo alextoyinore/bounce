@@ -40,3 +40,10 @@ npmRebuild: false
 publish:
   provider: generic
   url: https://example.com/auto-updates
+
+fileAssociations:
+  - ext: "bounce"
+    name: "Bounce Project"
+    description: "Bounce DAW Project File"
+    icon: "build/icon.png"
+    role: "Editor"
