@@ -396,6 +396,25 @@ class Track {
     this.effects = [];
     this.inputNode = this.ctx.createGain(); // Sources connect here
 
+    // Create 3-band EQ filters
+    this.lowFilter = this.ctx.createBiquadFilter();
+    this.lowFilter.type = 'lowshelf';
+    this.lowFilter.frequency.value = 200; // Hz
+    this.lowFilter.gain.value = 0.0; // dB
+    
+    this.midFilter = this.ctx.createBiquadFilter();
+    this.midFilter.type = 'peaking';
+    this.midFilter.frequency.value = 1000; // Hz
+    this.midFilter.Q.value = 1.0;
+    this.midFilter.gain.value = 0.0; // dB
+    
+    this.highFilter = this.ctx.createBiquadFilter();
+    this.highFilter.type = 'highshelf';
+    this.highFilter.frequency.value = 5000; // Hz
+    this.highFilter.gain.value = 0.0; // dB
+    
+    this.eqValues = { low: 0, mid: 0, high: 0 };
+
     // Automation data: { 'volume': [{time, value}], 'pan': [], 'fx.<id>.<param>': [], 'gen.<param>': [] }
     this.automations = {};
     
@@ -437,6 +456,18 @@ class Track {
     }
   }
 
+  setEQ(band, dbValue) {
+    const val = Math.max(-12, Math.min(12, dbValue));
+    this.eqValues[band] = val;
+    if (band === 'low' && this.lowFilter) {
+      this.lowFilter.gain.setValueAtTime(val, this.ctx.currentTime);
+    } else if (band === 'mid' && this.midFilter) {
+      this.midFilter.gain.setValueAtTime(val, this.ctx.currentTime);
+    } else if (band === 'high' && this.highFilter) {
+      this.highFilter.gain.setValueAtTime(val, this.ctx.currentTime);
+    }
+  }
+
   rebuildChain() {
     this.inputNode.disconnect();
     this.effects.forEach(fx => { 
@@ -445,6 +476,11 @@ class Track {
       if (fx.outputNode) fx.outputNode.disconnect(); 
       if (fx.node && fx.node !== fx.inputNode) fx.node.disconnect(); // Fallback for old simple effects
     });
+    
+    // Disconnect filters to rebuild cleanly
+    if (this.lowFilter) this.lowFilter.disconnect();
+    if (this.midFilter) this.midFilter.disconnect();
+    if (this.highFilter) this.highFilter.disconnect();
     this.analyserNode.disconnect();
     
     let lastNode = this.inputNode;
@@ -456,6 +492,12 @@ class Track {
         lastNode = outNode;
       }
     });
+    
+    // Route signal through the 3-band EQs
+    lastNode.connect(this.lowFilter);
+    this.lowFilter.connect(this.midFilter);
+    this.midFilter.connect(this.highFilter);
+    lastNode = this.highFilter;
     
     lastNode.connect(this.analyserNode);
     this.analyserNode.connect(this.gainNode);
@@ -529,6 +571,9 @@ class AudioEngine {
     this.tracks = new Map();
     this.soloedTracks = new Set();
     this.activeRecorders = new Map(); // trackId → { mediaRecorder, chunks, stream }
+    this.inputDeviceId = 'default';  // selected mic device
+    this.outputDeviceId = 'default'; // selected output device
+    this.inputMonitor = false;       // monitor mic through effects chain
     
     console.log('AudioEngine initialized');
   }
@@ -869,7 +914,10 @@ class AudioEngine {
   async startRecording(trackId) {
     if (this.activeRecorders.has(trackId)) return true; // already recording
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const constraints = { video: false, audio: this.inputDeviceId && this.inputDeviceId !== 'default'
+        ? { deviceId: { exact: this.inputDeviceId } }
+        : true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg']
         .find(t => MediaRecorder.isTypeSupported(t)) || '';
       const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
@@ -908,6 +956,27 @@ class AudioEngine {
 
   isRecordingTrack(trackId) {
     return this.activeRecorders.has(trackId);
+  }
+
+  // ── Device Selection ───────────────────────────────────────────────
+  async getAudioDevices() {
+    try {
+      // Request permission first so labels are populated
+      await navigator.mediaDevices.getUserMedia({ audio: true }).then(s => s.getTracks().forEach(t => t.stop()));
+    } catch (e) { /* permission denied — labels will be empty */ }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return {
+      inputs:  devices.filter(d => d.kind === 'audioinput'),
+      outputs: devices.filter(d => d.kind === 'audiooutput'),
+    };
+  }
+
+  async setOutputDevice(deviceId) {
+    this.outputDeviceId = deviceId;
+    if (this.ctx.setSinkId && deviceId && deviceId !== 'default') {
+      try { await this.ctx.setSinkId(deviceId); }
+      catch (err) { console.warn('setSinkId failed:', err); }
+    }
   }
 }
 

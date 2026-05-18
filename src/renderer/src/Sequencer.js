@@ -34,6 +34,7 @@ export class Sequencer {
     this.gridSnapInBeats = 0.25; // 1/16 default
     this.loopEnabled = true;
     this.isRecording = false; // Global record-arm flag (set true when any track is armed)
+    this.activePatternSources = [];
   }
 
   setZoom(newPxPerSecond) {
@@ -96,6 +97,18 @@ export class Sequencer {
     this.clips.push(clip);
   }
 
+  stopActivePatternNotes(trackId) {
+    if (this.activePatternSources) {
+      this.activePatternSources = this.activePatternSources.filter(item => {
+        if (!trackId || item.trackId === trackId) {
+          try { item.sourceNode.stop(); } catch(e){}
+          return false;
+        }
+        return true;
+      });
+    }
+  }
+
   removeClip(clip) {
     const index = this.clips.indexOf(clip);
     if (index > -1) {
@@ -116,6 +129,8 @@ export class Sequencer {
     if (index > -1) {
       this.patternClips.splice(index, 1);
     }
+    // Stop all active playback sounds for this track immediately!
+    this.stopActivePatternNotes(patternClip.trackId);
   }
 
   addNoteToPattern(trackId, note, step, durationSteps = 1) {
@@ -128,6 +143,21 @@ export class Sequencer {
   removeNoteFromPattern(trackId, note, step) {
     if (!this.patterns[trackId]) return;
     this.patterns[trackId] = this.patterns[trackId].filter(n => !(n.note === note && n.step === step));
+
+    // If all notes or steps are removed, clean up arranger and stop playback
+    if (this.patterns[trackId].length === 0) {
+      // Stop all active playback notes for this track immediately!
+      this.stopActivePatternNotes(trackId);
+
+      // Filter pattern clips and remove their DOM elements
+      this.patternClips = this.patternClips.filter(pc => {
+        if (pc.trackId === trackId) {
+          if (pc.uiElement) pc.uiElement.remove();
+          return false;
+        }
+        return true;
+      });
+    }
   }
 
   play() {
@@ -320,7 +350,15 @@ export class Sequencer {
             const duration = noteObj.durationSteps * secondsPerStep;
             const source = engine.playNote(trackId, noteObj.note, exactTime, duration);
             if (source) {
-              source.onended = () => {};
+              const srcItem = { trackId, sourceNode: source };
+              if (!this.activePatternSources) this.activePatternSources = [];
+              this.activePatternSources.push(srcItem);
+              source.onended = () => {
+                if (this.activePatternSources) {
+                  const idx = this.activePatternSources.indexOf(srcItem);
+                  if (idx > -1) this.activePatternSources.splice(idx, 1);
+                }
+              };
             }
           }
         });
@@ -409,6 +447,19 @@ export class Sequencer {
     if (!this.playheadEl) return;
     const pxPos = timeInSeconds * this.pxPerSecond;
     this.playheadEl.style.left = `${pxPos}px`;
+
+    // Auto-scroll the arrangement view if follow is enabled
+    if (localStorage.getItem('bounce.followPlayhead') !== 'false') { // Default to true if not set
+      const view = document.querySelector('.arrangement-view');
+      if (view) {
+        const viewWidth = view.clientWidth;
+        const scrollLeft = view.scrollLeft;
+        // If playhead goes beyond the right 75% or left 10%, center it
+        if (pxPos > scrollLeft + viewWidth * 0.75 || pxPos < scrollLeft + viewWidth * 0.1) {
+          view.scrollLeft = pxPos - viewWidth / 2;
+        }
+      }
+    }
   }
 
   updateLCD(timeInSeconds) {

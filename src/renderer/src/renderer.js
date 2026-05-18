@@ -243,7 +243,7 @@ function init() {
       if (lane) lane.classList.toggle('recording', active);
     }
 
-    function createRecordedClip(trackId, startTime, audioBuffer) {
+    function createRecordedClip(trackId, startTime, audioBuffer, blob) {
       const lane = document.querySelector(`.track-lane[data-track-id="${trackId}"]`);
       if (!lane) return;
       const duration = audioBuffer.duration;
@@ -260,6 +260,7 @@ function init() {
       lane.appendChild(clipEl);
       sequencer.addClip({
         buffer: audioBuffer,
+        blob: blob, // Store raw recording Blob
         startTime,
         duration,
         originalDuration: duration,
@@ -291,7 +292,7 @@ function init() {
         const result = await engine.stopRecording(trackId);
         showRecordingIndicator(trackId, false);
         if (result && result.audioBuffer) {
-          createRecordedClip(trackId, recordingStartsByTrack[trackId] || 0, result.audioBuffer);
+          createRecordedClip(trackId, recordingStartsByTrack[trackId] || 0, result.audioBuffer, result.blob);
         }
       }
     }
@@ -553,6 +554,7 @@ function init() {
           e.preventDefault();
           selectedClips.forEach(clip => {
             const isPattern = clip.classList.contains('pattern-clip');
+            const trackId = clip.closest('.track-lane')?.dataset.trackId;
             if (isPattern) {
               const seqClip = sequencer.patternClips.find(c => c.uiElement === clip);
               if (seqClip) sequencer.removePatternClip(seqClip);
@@ -561,6 +563,9 @@ function init() {
               if (seqClip) sequencer.removeClip(seqClip);
             }
             clip.remove();
+            if (isPattern && trackId) {
+              syncPatternClip(trackId);
+            }
           });
           selectedClips.clear();
           dawHistory.pushState('Delete Clip');
@@ -840,6 +845,12 @@ function init() {
       const beatsPerSecond = sequencer.bpm / 60
       const beatsPerBar = sequencer.timeSignature?.numerator || 4
       
+      const isLight = document.body.classList.contains('light-theme')
+      const color1 = isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.15)'
+      const color2 = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)'
+      const color3 = isLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(255, 255, 255, 0.03)'
+      const borderLeftVal = isLight ? '1px solid rgba(0, 0, 0, 0.1)' : '1px solid rgba(255, 255, 255, 0.1)'
+
       // Set complex grid background on grid-container
       const gridContainer = document.querySelector('.grid-container')
       if (gridContainer) {
@@ -848,9 +859,9 @@ function init() {
         const sixteenthPixels = beatPixels / 4
         
         gridContainer.style.backgroundImage = `
-          repeating-linear-gradient(90deg, transparent, transparent calc(${barPixels}px - 1px), rgba(255,255,255,0.15) calc(${barPixels}px - 1px), rgba(255,255,255,0.15) ${barPixels}px),
-          repeating-linear-gradient(90deg, transparent, transparent calc(${beatPixels}px - 1px), rgba(255,255,255,0.08) calc(${beatPixels}px - 1px), rgba(255,255,255,0.08) ${beatPixels}px),
-          repeating-linear-gradient(90deg, transparent, transparent calc(${sixteenthPixels}px - 1px), rgba(255,255,255,0.03) calc(${sixteenthPixels}px - 1px), rgba(255,255,255,0.03) ${sixteenthPixels}px)
+          repeating-linear-gradient(90deg, transparent, transparent calc(${barPixels}px - 1px), ${color1} calc(${barPixels}px - 1px), ${color1} ${barPixels}px),
+          repeating-linear-gradient(90deg, transparent, transparent calc(${beatPixels}px - 1px), ${color2} calc(${beatPixels}px - 1px), ${color2} ${beatPixels}px),
+          repeating-linear-gradient(90deg, transparent, transparent calc(${sixteenthPixels}px - 1px), ${color3} calc(${sixteenthPixels}px - 1px), ${color3} ${sixteenthPixels}px)
         `
       }
 
@@ -877,7 +888,7 @@ function init() {
           const beatSpan = document.createElement('span')
           beatSpan.textContent = j === 0 ? '' : (j + 1)
           beatSpan.style.width = `${beatPixels}px`
-          if (j !== 0) beatSpan.style.borderLeft = '1px solid rgba(255,255,255,0.1)'
+          if (j !== 0) beatSpan.style.borderLeft = borderLeftVal
           beatsContainer.appendChild(beatSpan)
         }
       }
@@ -1256,6 +1267,7 @@ function init() {
         if (clip) {
           e.preventDefault();
           const isPattern = clip.classList.contains('pattern-clip')
+          const trackId = clip.closest('.track-lane')?.dataset.trackId
           if (isPattern) {
             const seqClip = sequencer.patternClips.find(c => c.uiElement === clip)
             if (seqClip) sequencer.removePatternClip(seqClip)
@@ -1265,6 +1277,9 @@ function init() {
           }
           clip.remove()
           selectedClips.delete(clip);
+          if (isPattern && trackId) {
+            syncPatternClip(trackId);
+          }
           dawHistory.pushState('Delete Clip');
         }
       })
@@ -1357,8 +1372,22 @@ function init() {
       channel.dataset.trackId = trackId
       channel.innerHTML = `
         <div class="channel-name">${trackName}</div>
-        <div class="channel-inserts">
-          <div class="insert-slot"></div><div class="insert-slot"></div><div class="insert-slot"></div>
+        <div class="channel-eq-section">
+          <div class="eq-knob-container">
+            <div class="eq-knob" data-band="high" title="High: 0.0 dB">
+              <div class="knob-indicator"></div>
+            </div>
+          </div>
+          <div class="eq-knob-container">
+            <div class="eq-knob" data-band="mid" title="Mid: 0.0 dB">
+              <div class="knob-indicator"></div>
+            </div>
+          </div>
+          <div class="eq-knob-container">
+            <div class="eq-knob" data-band="low" title="Low: 0.0 dB">
+              <div class="knob-indicator"></div>
+            </div>
+          </div>
         </div>
         <div class="channel-controls">
           <div class="btn-group"><button class="c-btn m-btn">M</button><button class="c-btn s-btn">S</button></div>
@@ -1368,7 +1397,7 @@ function init() {
           <div class="fader-track"><div class="fader-handle" style="bottom: 80%;"></div></div>
           <div class="peak-meter"><div class="meter-level" style="height: 0%;"></div></div>
         </div>
-        <div class="channel-db">-1.9</div>
+        <div class="channel-db">0.0dB</div>
       `
       mixerContainer.appendChild(channel)
 
@@ -1575,6 +1604,64 @@ function init() {
       channel.addEventListener('mousedown', selectTrack)
       seqRow.addEventListener('mousedown', selectTrack)
 
+      // Bind EQ Knobs dragging logic inside Mixer Channel
+      const eqKnobs = channel.querySelectorAll('.eq-knob');
+      eqKnobs.forEach(knob => {
+        const band = knob.dataset.band;
+        const bandName = band.charAt(0).toUpperCase() + band.slice(1);
+        
+        let startY = 0;
+        let startVal = 0;
+        
+        const onMouseMove = (e) => {
+          const dy = startY - e.clientY;
+          // 1px drag = 0.2dB change
+          let newVal = startVal + (dy * 0.2);
+          newVal = Math.max(-12, Math.min(12, newVal));
+          
+          // Update engine
+          const engineTrack = engine.getTrack(trackId);
+          if (engineTrack) {
+            engineTrack.setEQ(band, newVal);
+          }
+          
+          // Update UI knob rotation: -12dB -> -135deg, 0dB -> 0deg, +12dB -> 135deg
+          const deg = (newVal / 12) * 135;
+          knob.style.transform = `rotate(${deg}deg)`;
+          
+          // Update tooltip (title) live as we drag
+          const sign = newVal > 0 ? '+' : '';
+          knob.title = `${bandName}: ${sign}${newVal.toFixed(1)} dB`;
+        };
+        
+        const onMouseUp = () => {
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+        };
+        
+        knob.addEventListener('mousedown', (e) => {
+          startY = e.clientY;
+          const engineTrack = engine.getTrack(trackId);
+          startVal = engineTrack ? (engineTrack.eqValues[band] || 0) : 0;
+          
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp);
+          e.stopPropagation(); // Avoid selecting/deselecting the track during drag
+          e.preventDefault();
+        });
+        
+        // Double click to reset to 0dB
+        knob.addEventListener('dblclick', (e) => {
+          const engineTrack = engine.getTrack(trackId);
+          if (engineTrack) {
+            engineTrack.setEQ(band, 0);
+          }
+          knob.style.transform = `rotate(0deg)`;
+          knob.title = `${bandName}: 0.0 dB`;
+          e.stopPropagation();
+        });
+      });
+
       // Scoped Context Menu on Track Header
       header.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -1584,9 +1671,21 @@ function init() {
         // Close any existing menus
         document.querySelectorAll('.track-context-menu').forEach(m => m.remove());
 
+        const trackNotes = sequencer.patterns[trackId] || [];
+        const lane = document.querySelector(`.track-lane[data-track-id="${trackId}"]`);
+        const hasClips = lane ? lane.querySelectorAll('.pattern-clip').length > 0 : false;
+        const canRestore = trackNotes.length > 0 && !hasClips;
+
         const menu = document.createElement('div');
         menu.className = 'track-context-menu';
+        
+        let restoreItemHtml = '';
+        if (canRestore) {
+          restoreItemHtml = `<div class="track-context-item" id="ctx-restore" style="color: var(--accent-color); font-weight: 700;">✨ Restore Pattern Clip</div>`;
+        }
+
         menu.innerHTML = `
+          ${restoreItemHtml}
           <div class="track-context-item" id="ctx-color">▧ Change Color</div>
           <div class="track-context-item" id="ctx-properties">⚙ Sound Properties</div>
           <div class="track-context-item" id="ctx-rename">✎ Rename Track</div>
@@ -1598,6 +1697,13 @@ function init() {
         document.body.appendChild(menu);
 
         // Bind clicks:
+        if (canRestore) {
+          menu.querySelector('#ctx-restore').addEventListener('click', () => {
+            menu.remove();
+            restorePatternClip(trackId);
+          });
+        }
+
         menu.querySelector('#ctx-color').addEventListener('click', () => {
           menu.remove();
           colorPicker.click(); // Trigger native color picker
@@ -2363,6 +2469,7 @@ function init() {
           if (oldSeq) sequencer.removePatternClip(oldSeq);
           pClip.remove();
         });
+        lane.querySelectorAll('.empty-lane-placeholder').forEach(p => p.remove());
         return;
       }
       
@@ -2381,21 +2488,67 @@ function init() {
       const musicalDuration = Math.ceil((maxTime - 0.01) / secondsPerBar) * secondsPerBar;
       const finalDuration = Math.max(secondsPerBar, musicalDuration);
       
-      if (pClips.length === 0) {
-        // Create initial default clip
-        createPatternClipUI(trackId, 0, finalDuration, lane);
-      } else {
-        // Update all existing clips for this track
+      if (pClips.length > 0) {
+        // Clips exist: update their sizing and redraw mini notes
+        lane.querySelectorAll('.empty-lane-placeholder').forEach(p => p.remove());
         pClips.forEach(pClip => {
           pClip.style.width = `${Math.floor(finalDuration * sequencer.pxPerSecond)}px`;
           pClip.dataset.duration = finalDuration;
           const seqPc = sequencer.patternClips.find(pc => pc.uiElement === pClip);
           if (seqPc) seqPc.duration = finalDuration;
           
-          // Redraw mini notes
           updatePatternClipMiniNotes(pClip, trackId, trackNotes, secondsPerStep);
         });
+      } else {
+        // No clips on track lane: render the beautiful empty lane placeholder!
+        showEmptyLanePlaceholder(trackId);
       }
+    }
+
+    function showEmptyLanePlaceholder(trackId) {
+      const lane = document.querySelector(`.track-lane[data-track-id="${trackId}"]`);
+      if (!lane) return;
+
+      lane.querySelectorAll('.empty-lane-placeholder').forEach(p => p.remove());
+
+      const placeholder = document.createElement('div');
+      placeholder.className = 'empty-lane-placeholder';
+      const count = (sequencer.patterns[trackId] || []).length;
+      placeholder.innerHTML = `<span>🎵 Restore Pattern Clip (${count} notes exist)</span>`;
+      
+      placeholder.addEventListener('click', (e) => {
+        e.stopPropagation();
+        restorePatternClip(trackId);
+      });
+      
+      lane.appendChild(placeholder);
+    }
+
+    function restorePatternClip(trackId) {
+      const lane = document.querySelector(`.track-lane[data-track-id="${trackId}"]`);
+      if (!lane) return;
+
+      lane.querySelectorAll('.empty-lane-placeholder').forEach(p => p.remove());
+
+      const trackNotes = sequencer.patterns[trackId] || [];
+      if (trackNotes.length === 0) return;
+
+      let maxStep = 0;
+      trackNotes.forEach(n => {
+        const endStep = n.step + n.durationSteps;
+        if (endStep > maxStep) maxStep = endStep;
+      });
+
+      const beatsPerSecond = sequencer.bpm / 60;
+      const secondsPerStep = (1 / beatsPerSecond) / 4;
+      const maxTime = maxStep * secondsPerStep;
+
+      const beatsPerBar = sequencer.timeSignature?.numerator || 4;
+      const secondsPerBar = (60 / sequencer.bpm) * beatsPerBar;
+      const musicalDuration = Math.ceil((maxTime - 0.01) / secondsPerBar) * secondsPerBar;
+      const finalDuration = Math.max(secondsPerBar, musicalDuration);
+
+      createPatternClipUI(trackId, 0, finalDuration, lane);
     }
 
     function createPatternClipUI(trackId, startTime, duration, lane) {
@@ -2874,15 +3027,20 @@ function init() {
       // Snap grid lines use the global arranger snap selection
       const gridSnapSelect = document.getElementById('grid-snap-select')
       const snapInterval = gridSnapSelect ? parseFloat(gridSnapSelect.value) : 0.0625
-      // snapInterval: 1=bar, 0.5=half, 0.25=quarter, 0.0625=1/16th
       const snapSteps = snapInterval * 16  // convert bar-fraction to steps
       const snapPixels = snapSteps * stepPx
       console.log('Snap pixels:', snapPixels); // use it
 
+      const isLight = document.body.classList.contains('light-theme')
+      const color1 = isLight ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.15)'
+      const color2 = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)'
+      const color3 = isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.04)'
+      const borderLeftVal = isLight ? '1px solid rgba(0, 0, 0, 0.08)' : '1px solid rgba(255, 255, 255, 0.08)'
+
       grid.style.backgroundImage = `
-        repeating-linear-gradient(90deg, transparent, transparent calc(${barPixels}px - 1px), rgba(255,255,255,0.15) calc(${barPixels}px - 1px), rgba(255,255,255,0.15) ${barPixels}px),
-        repeating-linear-gradient(90deg, transparent, transparent calc(${beatPixels}px - 1px), rgba(255,255,255,0.08) calc(${beatPixels}px - 1px), rgba(255,255,255,0.08) ${beatPixels}px),
-        repeating-linear-gradient(90deg, transparent, transparent calc(${stepPx}px - 1px), rgba(255,255,255,0.04) calc(${stepPx}px - 1px), rgba(255,255,255,0.04) ${stepPx}px)
+        repeating-linear-gradient(90deg, transparent, transparent calc(${barPixels}px - 1px), ${color1} calc(${barPixels}px - 1px), ${color1} ${barPixels}px),
+        repeating-linear-gradient(90deg, transparent, transparent calc(${beatPixels}px - 1px), ${color2} calc(${beatPixels}px - 1px), ${color2} ${beatPixels}px),
+        repeating-linear-gradient(90deg, transparent, transparent calc(${stepPx}px - 1px), ${color3} calc(${stepPx}px - 1px), ${color3} ${stepPx}px)
       `
 
       ruler.innerHTML = `
@@ -2906,7 +3064,7 @@ function init() {
           beatTick.textContent = b === 0 ? '' : (b + 1)
           beatTick.className = 'ruler-beat-num'
           beatTick.style.width = `${beatPixels}px`
-          if (b !== 0) beatTick.style.borderLeft = '1px solid rgba(255,255,255,0.08)'
+          if (b !== 0) beatTick.style.borderLeft = borderLeftVal
           beatsContainer.appendChild(beatTick)
         }
       }
@@ -3016,18 +3174,86 @@ function init() {
       }, null, 2)
     }
 
+    function resolveProjectFolderAndFile(selectedPath) {
+      const normalized = selectedPath.replace(/\\/g, '/');
+      if (normalized.endsWith('/project.bounce')) {
+        return {
+          projectFile: selectedPath,
+          projectDir: selectedPath.slice(0, Math.max(selectedPath.lastIndexOf('/'), selectedPath.lastIndexOf('\\')))
+        };
+      }
+      
+      const lastSlash = Math.max(selectedPath.lastIndexOf('/'), selectedPath.lastIndexOf('\\'));
+      const dir = selectedPath.slice(0, lastSlash);
+      let name = selectedPath.slice(lastSlash + 1);
+      if (name.endsWith('.bounce')) {
+        name = name.slice(0, -7);
+      }
+      
+      const folder = `${dir}/${name}`;
+      const file = `${folder}/project.bounce`;
+      return {
+        projectFile: file,
+        projectDir: folder
+      };
+    }
+
     async function doSave(path) {
-      const data = serializeProject()
-      const ok = await window.api.writeFile(path, data)
-      if (ok) {
-        currentProjectPath = path
-        const fileName = path.split(/[\\/]/).pop()
-        document.title = `Bounce — ${fileName}`
-        const titleEl = document.getElementById('project-title')
-        if (titleEl) titleEl.textContent = fileName
-        showHudFeedback("💾", `Saved: ${fileName}`)
-      } else {
-        alert('Save failed.')
+      const { projectFile, projectDir } = resolveProjectFolderAndFile(path);
+      
+      try {
+        // 1. Create the project directory set
+        await window.api.mkdir(projectDir);
+        
+        // 2. Create the "Recorded" directory inside it
+        const recordedDir = `${projectDir}/Recorded`;
+        await window.api.mkdir(recordedDir);
+        
+        // 3. Render and save all recorded in-memory audio clips to disk
+        for (const clip of sequencer.clips) {
+          if (clip.blob && !clip._filePath) {
+            const safeTrackId = clip.trackId.replace(/[^a-zA-Z0-9]/g, '_');
+            const relativeFileName = `Recorded/rec_${safeTrackId}_${Date.now()}_${Math.floor(Math.random()*1000)}.webm`;
+            const absoluteFilePath = `${projectDir}/${relativeFileName}`;
+            
+            // Transmit binary chunks across IPC safely
+            const arrayBuffer = await clip.blob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+            
+            const writeSuccess = await window.api.writeFile(absoluteFilePath, uint8Array);
+            if (writeSuccess) {
+              clip._fileName = relativeFileName.split('/').pop();
+              clip._filePath = relativeFileName; // Relative path saved to project JSON
+              
+              // Dynamic UI feedback: update clip name and preserve resize handle
+              if (clip.uiElement) {
+                clip.uiElement.textContent = clip._fileName;
+                const rh = document.createElement('div');
+                rh.className = 'resize-handle';
+                clip.uiElement.appendChild(rh);
+              }
+            } else {
+              console.error('Failed to write binary recording to disk:', absoluteFilePath);
+            }
+          }
+        }
+        
+        // 4. Save JSON descriptor
+        const data = serializeProject()
+        const ok = await window.api.writeFile(projectFile, data)
+        if (ok) {
+          currentProjectPath = projectFile
+          const folderName = projectDir.split(/[\\/]/).pop()
+          document.title = `Bounce — ${folderName}`
+          const titleEl = document.getElementById('project-title')
+          if (titleEl) titleEl.textContent = folderName
+          showHudFeedback("💾", `Saved Project Set: ${folderName}`)
+        } else {
+          alert('Save failed.')
+        }
+      } catch (err) {
+        console.error('DoSave failed:', err);
+        alert('Could not save project folder: ' + err.message);
       }
     }
 
@@ -3035,13 +3261,16 @@ function init() {
       if (currentProjectPath) {
         await doSave(currentProjectPath)
       } else {
-        const path = await window.api.saveFile('Untitled.bounce')
+        const defaultBase = await window.api.getDefaultProjectsPath();
+        const path = await window.api.saveFile(`${defaultBase}/Untitled/project.bounce`)
         if (path) await doSave(path)
       }
     })
 
     document.getElementById('menu-saveas')?.addEventListener('click', async () => {
-      const path = await window.api.saveFile(currentProjectPath || 'Untitled.bounce')
+      const defaultBase = await window.api.getDefaultProjectsPath();
+      const initialPath = currentProjectPath || `${defaultBase}/Untitled/project.bounce`;
+      const path = await window.api.saveFile(initialPath)
       if (path) await doSave(path)
     })
 
@@ -3277,12 +3506,15 @@ function init() {
         if (!raw) return
         const text = new TextDecoder().decode(raw)
         const data = JSON.parse(text)
+        currentProjectPath = path // Set first so relative audio file loaders can use it!
         await loadProject(data)
-        currentProjectPath = path
-        const fileName = path.split(/[\\/]/).pop()
-        document.title = `Bounce — ${fileName}`
+        
+        const lastIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        const projectDir = path.slice(0, lastIndex);
+        const folderName = projectDir.split(/[\\/]/).pop();
+        document.title = `Bounce — ${folderName}`
         const titleEl = document.getElementById('project-title')
-        if (titleEl) titleEl.textContent = fileName
+        if (titleEl) titleEl.textContent = folderName
       } catch (err) {
         console.error('Load failed:', err)
         alert('Could not open project: ' + err.message)
@@ -3320,6 +3552,20 @@ function init() {
       document.title = 'Bounce DAW'
       const titleEl = document.getElementById('project-title')
       if (titleEl) titleEl.textContent = 'Untitled Project'
+
+      // Apply default settings
+      const defaultBpm = parseFloat(localStorage.getItem('bounce.defaultBPM') || '120');
+      sequencer.bpm = defaultBpm;
+      const bd = document.getElementById('bpm-display');
+      if (bd) bd.textContent = defaultBpm.toFixed(1);
+
+      const defaultSnap = localStorage.getItem('bounce.defaultSnap') || '0.0625';
+      const snapSelect = document.getElementById('grid-snap-select');
+      if (snapSelect) {
+        snapSelect.value = defaultSnap;
+        snapSelect.dispatchEvent(new Event('change'));
+      }
+
       drawTimeline()
       drawPianoRollTimeline()
     })
@@ -3464,13 +3710,32 @@ function init() {
         for (const c of data.clips) {
           if (!c.filePath) continue
           try {
-            const buf = await window.api.readFile(c.filePath)
-            if (!buf) continue
-            const audioBuffer = await engine.decodeAudioData(buf.buffer)
+            // Resolve relative paths relative to currentProjectPath's folder
+            let absolutePath = c.filePath;
+            const isRelative = !c.filePath.startsWith('/') && !c.filePath.startsWith('\\') && !c.filePath.includes(':');
+            if (isRelative && currentProjectPath) {
+              const lastIndex = Math.max(currentProjectPath.lastIndexOf('/'), currentProjectPath.lastIndexOf('\\'));
+              const projectDir = currentProjectPath.slice(0, lastIndex);
+              absolutePath = `${projectDir}/${c.filePath}`;
+            }
+
+            const buf = await window.api.readFile(absolutePath)
+            if (!buf) {
+              console.warn('Could not read clip file:', absolutePath);
+              continue
+            }
+            
+            // Safe TypedArray ArrayBuffer copy
+            const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+            const audioBuffer = await engine.decodeAudioData(arrayBuffer)
+            
             const lane = document.querySelector(`.track-lane[data-track-id="${c.trackId}"]`)
             if (!lane) continue
             const clipEl = document.createElement('div')
             clipEl.className = 'clip audio-clip'
+            if (c.filePath.startsWith('Recorded/')) {
+              clipEl.classList.add('recorded-clip');
+            }
             clipEl.style.left = `${c.startTime * sequencer.pxPerSecond}px`
             clipEl.style.width = `${Math.max(20, c.duration * sequencer.pxPerSecond)}px`
             clipEl.textContent = c.fileName
@@ -3480,7 +3745,17 @@ function init() {
             rh.className = 'resize-handle'
             clipEl.appendChild(rh)
             lane.appendChild(clipEl)
-            sequencer.addClip({ buffer: audioBuffer, startTime: c.startTime, duration: c.duration, originalDuration: c.originalDuration || c.duration, trackId: c.trackId, scheduled: false, uiElement: clipEl, _filePath: c.filePath, _fileName: c.fileName })
+            sequencer.addClip({
+              buffer: audioBuffer,
+              startTime: c.startTime,
+              duration: c.duration,
+              originalDuration: c.originalDuration || c.duration,
+              trackId: c.trackId,
+              scheduled: false,
+              uiElement: clipEl,
+              _filePath: c.filePath,
+              _fileName: c.fileName
+            })
           } catch (err) { console.warn('Could not restore clip:', err) }
         }
       }
@@ -4149,6 +4424,332 @@ function init() {
 
     populateList(effectsContainer, effects, 'effects')
     populateList(generatorsContainer, generators, 'generators')
+
+    // ── Preferences / Settings Modal Logic ──────────────────────────────
+    const prefModal = document.getElementById('settings-modal');
+    const prefCloseBtn = document.getElementById('settings-close-btn');
+    const prefApplyBtn = document.getElementById('settings-apply-btn');
+    const prefResetBtn = document.getElementById('settings-reset-btn');
+    const menuPref = document.getElementById('menu-preferences');
+
+    // Tab switcher
+    const prefTabs = document.querySelectorAll('.settings-tab');
+    const prefPanes = document.querySelectorAll('.settings-pane');
+
+    prefTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.tab;
+        prefTabs.forEach(t => t.classList.toggle('active', t === tab));
+        prefPanes.forEach(p => p.classList.toggle('active', p.id === `stab-${target}`));
+      });
+    });
+
+    // Toggle menu dropdown show/hide
+    menuPref?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+      await openPreferencesModal();
+    });
+
+    // Add Ctrl+, shortcut
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault();
+        openPreferencesModal();
+      }
+    });
+
+    async function openPreferencesModal() {
+      if (!prefModal) return;
+      prefModal.style.display = 'flex';
+      
+      // Update Audio Stats
+      const sampleRateEl = document.getElementById('pref-sample-rate');
+      const ctxStateEl = document.getElementById('pref-ctx-state');
+      if (sampleRateEl) sampleRateEl.textContent = `${engine.ctx.sampleRate} Hz`;
+      if (ctxStateEl) ctxStateEl.textContent = engine.ctx.state.toUpperCase();
+
+      // Populate output and input audio devices
+      const outSelect = document.getElementById('pref-output-device');
+      const inSelect = document.getElementById('pref-input-device');
+      
+      if (outSelect && inSelect) {
+        const curOut = localStorage.getItem('bounce.outputDevice') || 'default';
+        const curIn = localStorage.getItem('bounce.inputDevice') || 'default';
+        
+        outSelect.innerHTML = '<option value="default">Default System Output</option>';
+        inSelect.innerHTML = '<option value="default">Default System Input</option>';
+        
+        try {
+          const devs = await engine.getAudioDevices();
+          devs.outputs.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.textContent = d.label || `Output Device (${d.deviceId.slice(0,5)})`;
+            if (d.deviceId === curOut) opt.selected = true;
+            outSelect.appendChild(opt);
+          });
+          devs.inputs.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.textContent = d.label || `Microphone (${d.deviceId.slice(0,5)})`;
+            if (d.deviceId === curIn) opt.selected = true;
+            inSelect.appendChild(opt);
+          });
+        } catch (err) {
+          console.warn('Could not enumerate audio devices:', err);
+        }
+      }
+
+      // Populate other form fields from localStorage
+      const latencySelect = document.getElementById('pref-latency');
+      if (latencySelect) latencySelect.value = localStorage.getItem('bounce.latencyHint') || 'interactive';
+
+      const densitySelect = document.getElementById('pref-ui-density');
+      if (densitySelect) densitySelect.value = localStorage.getItem('bounce.uiDensity') || 'normal';
+
+      const autosaveCheck = document.getElementById('pref-autosave');
+      const autosaveInterval = document.getElementById('pref-autosave-interval');
+      const autosaveIntervalRow = document.getElementById('autosave-interval-row');
+      
+      if (autosaveCheck) {
+        const isEnabled = localStorage.getItem('bounce.autoSave') === 'true';
+        autosaveCheck.checked = isEnabled;
+        if (autosaveIntervalRow) {
+          autosaveIntervalRow.style.opacity = isEnabled ? '1' : '0.4';
+          autosaveIntervalRow.style.pointerEvents = isEnabled ? 'auto' : 'none';
+        }
+      }
+      if (autosaveInterval) autosaveInterval.value = localStorage.getItem('bounce.autoSaveInterval') || '5';
+
+      const bpmInput = document.getElementById('pref-default-bpm');
+      if (bpmInput) bpmInput.value = localStorage.getItem('bounce.defaultBPM') || '120';
+
+      const snapSelect = document.getElementById('pref-default-snap');
+      if (snapSelect) snapSelect.value = localStorage.getItem('bounce.defaultSnap') || '0.0625';
+
+      const followCheck = document.getElementById('pref-follow-playhead');
+      if (followCheck) followCheck.checked = localStorage.getItem('bounce.followPlayhead') !== 'false';
+
+      const monitorCheck = document.getElementById('pref-input-monitor');
+      if (monitorCheck) monitorCheck.checked = localStorage.getItem('bounce.inputMonitor') === 'true';
+      
+      const autoNameCheck = document.getElementById('pref-auto-name-clips');
+      if (autoNameCheck) autoNameCheck.checked = localStorage.getItem('bounce.autoNameClips') !== 'false';
+
+      // Setup theme buttons state
+      const savedTheme = localStorage.getItem('bounce.theme') || 'dark';
+      document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === savedTheme);
+      });
+
+      // Setup Swatch selection styles
+      const activeColor = localStorage.getItem('bounce.accentColor') || '#00e5ff';
+      document.querySelectorAll('.accent-swatch').forEach(sw => {
+        sw.classList.toggle('active', sw.dataset.color === activeColor);
+      });
+      const customColorInput = document.getElementById('pref-accent-custom');
+      if (customColorInput) customColorInput.value = activeColor;
+    }
+
+    // Toggle Autosave row dependency
+    document.getElementById('pref-autosave')?.addEventListener('change', (e) => {
+      const isEnabled = e.target.checked;
+      const autosaveIntervalRow = document.getElementById('autosave-interval-row');
+      if (autosaveIntervalRow) {
+        autosaveIntervalRow.style.opacity = isEnabled ? '1' : '0.4';
+        autosaveIntervalRow.style.pointerEvents = isEnabled ? 'auto' : 'none';
+      }
+    });
+
+    function closePreferencesModal() {
+      if (prefModal) prefModal.style.display = 'none';
+    }
+
+    prefCloseBtn?.addEventListener('click', closePreferencesModal);
+    
+    prefModal?.addEventListener('mousedown', (e) => {
+      if (e.target === prefModal) closePreferencesModal();
+    });
+
+    // Theme Switcher clicks
+    document.querySelectorAll('.theme-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const theme = btn.dataset.theme;
+        applyTheme(theme);
+      });
+    });
+
+    function applyTheme(theme) {
+      if (theme === 'light') {
+        document.body.classList.add('light-theme');
+      } else {
+        document.body.classList.remove('light-theme');
+      }
+      localStorage.setItem('bounce.theme', theme);
+      
+      const darkBtn = document.getElementById('theme-dark');
+      const lightBtn = document.getElementById('theme-light');
+      if (darkBtn && lightBtn) {
+        darkBtn.classList.toggle('active', theme === 'dark');
+        lightBtn.classList.toggle('active', theme === 'light');
+      }
+    }
+
+    // Swatch Color clicks
+    document.querySelectorAll('.accent-swatch').forEach(sw => {
+      sw.addEventListener('click', () => {
+        const color = sw.dataset.color;
+        applyAccentColor(color);
+        document.querySelectorAll('.accent-swatch').forEach(s => s.classList.toggle('active', s === sw));
+        const customColorInput = document.getElementById('pref-accent-custom');
+        if (customColorInput) customColorInput.value = color;
+      });
+    });
+
+    // Custom Color picker input
+    document.getElementById('pref-accent-custom')?.addEventListener('input', (e) => {
+      const color = e.target.value;
+      applyAccentColor(color);
+      document.querySelectorAll('.accent-swatch').forEach(sw => {
+        sw.classList.toggle('active', sw.dataset.color === color);
+      });
+    });
+
+    function applyAccentColor(color) {
+      document.documentElement.style.setProperty('--accent-color', color);
+      document.documentElement.style.setProperty('--accent-hover', `${color}dd`);
+      localStorage.setItem('bounce.accentColor', color);
+    }
+
+    // Apply UI density
+    function applyUiDensity(density) {
+      document.body.classList.remove('density-compact', 'density-comfortable');
+      if (density === 'compact') {
+        document.body.classList.add('density-compact');
+      } else if (density === 'comfortable') {
+        document.body.classList.add('density-comfortable');
+      }
+      localStorage.setItem('bounce.uiDensity', density);
+    }
+
+    // Apply preferences
+    prefApplyBtn?.addEventListener('click', async () => {
+      const outSelect = document.getElementById('pref-output-device');
+      const inSelect = document.getElementById('pref-input-device');
+      const latencySelect = document.getElementById('pref-latency');
+      const densitySelect = document.getElementById('pref-ui-density');
+      const autosaveCheck = document.getElementById('pref-autosave');
+      const autosaveInterval = document.getElementById('pref-autosave-interval');
+      const bpmInput = document.getElementById('pref-default-bpm');
+      const snapSelect = document.getElementById('pref-default-snap');
+      const followCheck = document.getElementById('pref-follow-playhead');
+      const monitorCheck = document.getElementById('pref-input-monitor');
+      const autoNameCheck = document.getElementById('pref-auto-name-clips');
+
+      // Save to localStorage
+      if (outSelect) {
+        localStorage.setItem('bounce.outputDevice', outSelect.value);
+        await engine.setOutputDevice(outSelect.value);
+      }
+      if (inSelect) {
+        localStorage.setItem('bounce.inputDevice', inSelect.value);
+        engine.inputDeviceId = inSelect.value;
+      }
+      if (latencySelect) localStorage.setItem('bounce.latencyHint', latencySelect.value);
+      if (densitySelect) applyUiDensity(densitySelect.value);
+      
+      if (autosaveCheck) {
+        localStorage.setItem('bounce.autoSave', autosaveCheck.checked.toString());
+        setupAutoSave();
+      }
+      if (autosaveInterval) {
+        localStorage.setItem('bounce.autoSaveInterval', autosaveInterval.value);
+        setupAutoSave();
+      }
+      if (bpmInput) localStorage.setItem('bounce.defaultBPM', bpmInput.value);
+      if (snapSelect) localStorage.setItem('bounce.defaultSnap', snapSelect.value);
+      if (followCheck) localStorage.setItem('bounce.followPlayhead', followCheck.checked.toString());
+      
+      if (monitorCheck) {
+        localStorage.setItem('bounce.inputMonitor', monitorCheck.checked.toString());
+        engine.inputMonitor = monitorCheck.checked;
+      }
+      if (autoNameCheck) localStorage.setItem('bounce.autoNameClips', autoNameCheck.checked.toString());
+
+      showToast('Settings saved successfully');
+      closePreferencesModal();
+    });
+
+    // Reset settings
+    prefResetBtn?.addEventListener('click', () => {
+      if (confirm('Reset all preferences to default?')) {
+        localStorage.removeItem('bounce.theme');
+        localStorage.removeItem('bounce.accentColor');
+        localStorage.removeItem('bounce.uiDensity');
+        localStorage.removeItem('bounce.outputDevice');
+        localStorage.removeItem('bounce.inputDevice');
+        localStorage.removeItem('bounce.latencyHint');
+        localStorage.removeItem('bounce.autoSave');
+        localStorage.removeItem('bounce.autoSaveInterval');
+        localStorage.removeItem('bounce.defaultBPM');
+        localStorage.removeItem('bounce.defaultSnap');
+        localStorage.removeItem('bounce.followPlayhead');
+        localStorage.removeItem('bounce.inputMonitor');
+        localStorage.removeItem('bounce.autoNameClips');
+
+        // Apply defaults immediately
+        applyTheme('dark');
+        applyAccentColor('#00e5ff');
+        applyUiDensity('normal');
+        engine.inputDeviceId = 'default';
+        engine.setOutputDevice('default');
+        setupAutoSave();
+        
+        showToast('Preferences reset');
+        openPreferencesModal(); // refresh fields
+      }
+    });
+
+    // Auto-Save background timer
+    let autoSaveTimer = null;
+    function setupAutoSave() {
+      if (autoSaveTimer) clearInterval(autoSaveTimer);
+      const enabled = localStorage.getItem('bounce.autoSave') === 'true';
+      const intervalMinutes = parseInt(localStorage.getItem('bounce.autoSaveInterval') || '5', 10);
+      if (enabled && intervalMinutes > 0) {
+        autoSaveTimer = setInterval(async () => {
+          if (currentProjectPath) {
+            await doSave(currentProjectPath);
+            showToast('💾 Project auto-saved');
+          }
+        }, intervalMinutes * 60 * 1000);
+      }
+    }
+
+    // Load saved preferences on startup
+    function loadSavedPreferences() {
+      const savedTheme = localStorage.getItem('bounce.theme') || 'dark';
+      applyTheme(savedTheme);
+
+      const savedAccent = localStorage.getItem('bounce.accentColor') || '#00e5ff';
+      applyAccentColor(savedAccent);
+
+      const savedDensity = localStorage.getItem('bounce.uiDensity') || 'normal';
+      applyUiDensity(savedDensity);
+
+      engine.inputDeviceId = localStorage.getItem('bounce.inputDevice') || 'default';
+      const savedOutDevice = localStorage.getItem('bounce.outputDevice') || 'default';
+      engine.setOutputDevice(savedOutDevice);
+
+      engine.inputMonitor = localStorage.getItem('bounce.inputMonitor') === 'true';
+
+      setupAutoSave();
+    }
+
+    loadSavedPreferences();
 
     // Initial update of mixer inserts
     updateMixerInserts()

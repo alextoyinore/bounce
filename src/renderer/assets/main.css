@@ -2092,4 +2092,648 @@ footer {
   filter: brightness(1.15);
   box-shadow: 0 4px 14px rgba(255, 60, 60, 0.4), inset 0 1px 0 rgba(255,255,255,0.1);
 }
+
+/* ======================================================
+   LIGHT THEME
+   ====================================================== */
+body.light-theme {
+  --bg-color: #f0f0f6;
+  --surface-color: #ffffff;
+  --surface-hover: #e6e6f0;
+  --border-color: #d0d0de;
+  --border-highlight: #b8b8cc;
+  --text-primary: #18181e;
+  --text-secondary: #5a5a72;
+  --accent-color: #0088bb;
+  --accent-hover: #00aae0;
+  --record-color: #dd2255;
+}
+
+body.light-theme header,
+body.light-theme aside,
+body.light-theme footer,
+body.light-theme .plugin-window,
+body.light-theme .track-context-menu {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+}
+
+body.light-theme .track-header,
+body.light-theme .track-lane,
+body.light-theme .mixer-channel {
+  border-color: var(--border-color);
+}
+
+body.light-theme .auto-lane { background: rgba(0,0,0,0.04); }
+body.light-theme .auto-lane-label { background: #f8f8fc; }
+
+/* UI Density */
+body.density-compact { font-size: 0.8rem; }
+body.density-compact .track-header { height: 44px; }
+body.density-comfortable { font-size: 0.9rem; }
+body.density-comfortable .track-header { height: 56px; }
+
+/* ======================================================
+   SETTINGS MODAL
+   ====================================================== */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in 0.15s ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.settings-panel {
+  background: var(--surface-color);
+  border: 1px solid var(--border-highlight);
+  border-radius: 12px;
+  width: min(680px, 92vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
+  animation: slide-up 0.18s ease-out;
+  overflow: hidden;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.settings-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.settings-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.settings-close:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+
+.settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  border-right: 1px solid var(--border-color);
+  flex-shrink: 0;
+  min-width: 140px;
+  background: var(--bg-color);
+}
+
+.settings-tab {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+  font-family: 'Inter', sans-serif;
+}
+.settings-tab:hover { background: var(--surface-hover); color: var(--text-primary); }
+.settings-tab.active { background: rgba(0,229,255,0.10); color: var(--accent-color); font-weight: 700; }
+
+.settings-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.settings-pane { display: none; }
+.settings-pane.active { display: block; }
+
+.settings-section-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+body.light-theme .settings-row { border-bottom-color: rgba(0,0,0,0.05); }
+
+.settings-label {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  flex: 1;
+}
+
+.settings-select {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  min-width: 180px;
+  transition: border-color 0.15s;
+}
+.settings-select:focus { outline: none; border-color: var(--accent-color); }
+
+.settings-input {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-family: 'Inter', sans-serif;
+  min-width: 80px;
+  text-align: right;
+}
+.settings-input:focus { outline: none; border-color: var(--accent-color); }
+
+.settings-value-display {
+  font-size: 0.78rem;
+  color: var(--accent-color);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+}
+
+.settings-note {
+  margin-top: 10px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.03);
+  border-left: 3px solid var(--accent-color);
+  border-radius: 0 4px 4px 0;
+}
+body.light-theme .settings-note { background: rgba(0,0,0,0.03); }
+
+/* Toggle switch */
+.settings-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.settings-toggle input { display: none; }
+.toggle-track {
+  width: 36px; height: 20px;
+  background: var(--border-highlight);
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.2s;
+}
+.settings-toggle input:checked + .toggle-track { background: var(--accent-color); }
+.toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.settings-toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(16px); }
+
+/* Theme switcher */
+.theme-switcher {
+  display: flex;
+  gap: 6px;
+}
+.theme-btn {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: 'Inter', sans-serif;
+}
+.theme-btn:hover { border-color: var(--accent-color); color: var(--text-primary); }
+.theme-btn.active { background: var(--accent-color); color: #000; border-color: var(--accent-color); }
+
+/* Accent color presets */
+.accent-presets {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.accent-swatch {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.15);
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.accent-swatch:hover { transform: scale(1.18); box-shadow: 0 0 0 3px rgba(255,255,255,0.2); }
+.accent-swatch.active { box-shadow: 0 0 0 3px #fff; }
+
+.settings-color-input {
+  width: 34px; height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Footer */
+.settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+.settings-btn-primary {
+  background: var(--accent-color);
+  color: #000;
+  border: none;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 7px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: filter 0.15s;
+}
+.settings-btn-primary:hover { filter: brightness(1.15); }
+.settings-btn-secondary {
+  background: none;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 0.78rem;
+  padding: 7px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: all 0.15s;
+}
+.settings-btn-secondary:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+
+/* ======================================================
+   LIGHT THEME OVERRIDES
+   ====================================================== */
+
+/* 1. LCD Display in Light Mode */
+body.light-theme .lcd-display {
+  background: #ffffff !important;
+  border-color: #d1d1d8 !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+body.light-theme .lcd-value,
+body.light-theme select.lcd-value {
+  color: var(--accent-color) !important;
+  text-shadow: none !important;
+}
+
+body.light-theme .lcd-editable {
+  background: #f4f4f7 !important;
+  color: #1a1a24 !important;
+}
+
+body.light-theme .lcd-editable:focus {
+  background: #ffffff !important;
+  outline: 1.5px solid var(--accent-color) !important;
+}
+
+/* 2. Master Mixer Channel in Light Mode */
+body.light-theme .mixer-channel.master {
+  background: #ffffff !important;
+  border-color: #d1d1d8 !important;
+}
+
+/* 3. Knob Flattening in Light Mode */
+body.light-theme .track-vol-knob,
+body.light-theme .track-pan-knob,
+body.light-theme .pan-knob,
+body.light-theme .eq-knob,
+body.light-theme .plugin-knob {
+  background: #e6e6f0 !important;
+  border-color: #b8b8cc !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+}
+
+body.light-theme .knob-pointer,
+body.light-theme .knob-indicator {
+  background: var(--accent-color) !important;
+}
+
+/* 4. Dropdown & Context Menu in Light Mode */
+body.light-theme .dropdown-menu {
+  background: rgba(255, 255, 255, 0.98) !important;
+  border-color: #d1d1d8 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08) !important;
+}
+
+body.light-theme .dropdown-item {
+  color: #1a1a24 !important;
+}
+
+body.light-theme .dropdown-item:hover {
+  background: var(--accent-color) !important;
+  color: #ffffff !important;
+}
+
+body.light-theme .track-context-menu {
+  background: rgba(255, 255, 255, 0.98) !important;
+  border-color: #d1d1d8 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08), 0 0 15px rgba(0, 0, 0, 0.03) !important;
+}
+
+body.light-theme .track-context-item {
+  color: #1a1a24 !important;
+}
+
+body.light-theme .track-context-item:hover {
+  background: var(--accent-color) !important;
+  color: #ffffff !important;
+}
+
+/* 5. Plugin and Effect Windows in Light Mode */
+body.light-theme .plugin-window {
+  background: rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(20px) !important;
+  border-color: #d1d1d8 !important;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.02) !important;
+}
+
+body.light-theme .plugin-header {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-bottom-color: #d1d1d8 !important;
+}
+
+body.light-theme .plugin-close {
+  color: #5a5a72 !important;
+}
+
+body.light-theme .plugin-close:hover {
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: #18181e !important;
+}
+
+/* 6. Active Plugins List Items in Light Mode */
+body.light-theme .active-plugin-item {
+  background: #ffffff !important;
+  border-color: #d1d1d8 !important;
+  color: #18181e !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+}
+
+body.light-theme .active-plugin-item:hover {
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.04), 0 0 12px rgba(0, 229, 255, 0.1) !important;
+}
+
+body.light-theme .plugin-item-icon {
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-color: #d1d1d8 !important;
+}
+
+/* 7. Piano Roll Note Tracks & Keys in Light Mode */
+body.light-theme .pr-row-white {
+  background: #ffffff !important;
+}
+
+body.light-theme .pr-row-black {
+  background: #f5f5fa !important;
+}
+
+body.light-theme .pr-row {
+  border-bottom-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+body.light-theme .pr-black {
+  background: #4e4e5a !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-color: #3b3b44 !important;
+}
+
+body.light-theme .piano-grid {
+  background: #fbfbfd !important;
+}
+
+/* 8. Mixer EQ Styling (Both Themes) */
+.channel-eq-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+body.light-theme .channel-eq-section {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.eq-knob-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.eq-knob {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #25252b;
+  border: 1.5px solid var(--border-color);
+  position: relative;
+  cursor: ns-resize;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  flex-shrink: 0;
+}
+
+.eq-knob .knob-indicator {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  width: 1.5px;
+  height: 5px;
+  background: var(--accent-color);
+  transform: translateX(-50%);
+  border-radius: 0.5px;
+  z-index: 2;
+}
+
+
+
+/* ======================================================
+   LIGHT MODE SHARP KEYS & AUTOMATION OVERRIDES
+   ====================================================== */
+body.light-theme .pr-black {
+  background: #eaeaea !important;
+  border-bottom: 1px solid #c9c9d4 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+}
+
+body.light-theme .pr-black .pr-key-label {
+  color: #111116 !important;
+  font-weight: 700 !important;
+  opacity: 0.95 !important;
+}
+
+body.light-theme .auto-btn {
+  border-color: rgba(0, 0, 0, 0.15) !important;
+  color: #4a4a5e !important;
+}
+
+body.light-theme .auto-btn:hover {
+  border-color: var(--accent-color) !important;
+  color: var(--accent-color) !important;
+}
+
+body.light-theme .auto-btn.active {
+  background: rgba(0, 229, 255, 0.08) !important;
+  border-color: var(--accent-color) !important;
+  color: var(--accent-color) !important;
+}
+
+body.light-theme .auto-lane-label {
+  background: #fbfbfd !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-left: 3px solid var(--track-color, transparent) !important;
+}
+
+body.light-theme .auto-lane-title {
+  color: var(--accent-color) !important;
+}
+
+body.light-theme .auto-param-select {
+  background: #ffffff !important;
+  border: 1px solid #dcdce2 !important;
+  color: #1a1a24 !important;
+}
+
+body.light-theme .auto-param-select option {
+  background: #ffffff !important;
+  color: #1a1a24 !important;
+}
+
+body.light-theme .auto-lane {
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-left: 3px solid var(--track-color, transparent) !important;
+}
+
+/* ======================================================
+   EMPTY ARRANGEMENT LANE PLACEHOLDER (RESTORE OPTION)
+   ====================================================== */
+.empty-lane-placeholder {
+  position: absolute;
+  inset: 5px 10px;
+  border: 1px dashed rgba(0, 229, 255, 0.35);
+  background: rgba(0, 229, 255, 0.03);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.15s ease-in-out;
+}
+
+.empty-lane-placeholder:hover {
+  border-color: var(--accent-color);
+  background: rgba(0, 229, 255, 0.08);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.15);
+}
+
+.empty-lane-placeholder span {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--accent-color);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+}
+
+body.light-theme .empty-lane-placeholder {
+  border: 1px dashed rgba(0, 229, 255, 0.5);
+  background: rgba(0, 229, 255, 0.05);
+}
+
+/* ======================================================
+   LIGHT MODE TOAST & HUD NOTIFICATION OVERRIDES
+   ====================================================== */
+body.light-theme .daw-toast {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  color: var(--accent-color) !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08), 0 0 12px rgba(0, 136, 187, 0.08) !important;
+}
+
+body.light-theme .daw-hud {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.1), 0 0 20px rgba(0, 136, 187, 0.05) !important;
+}
+
+body.light-theme .daw-hud-icon {
+  filter: drop-shadow(0 0 6px rgba(0, 136, 187, 0.35)) !important;
+}
+
+body.light-theme .daw-hud-text {
+  color: var(--text-primary) !important;
+}
 

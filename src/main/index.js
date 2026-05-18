@@ -141,10 +141,46 @@ app.whenReady().then(() => {
 
   ipcMain.handle('fs:writeFile', async (event, filePath, data) => {
     try {
-      await fs.writeFile(filePath, data, 'utf-8')
+      if (typeof data === 'string') {
+        await fs.writeFile(filePath, data, 'utf-8')
+      } else {
+        // data is a Buffer or Uint8Array
+        await fs.writeFile(filePath, Buffer.from(data))
+      }
       return true
     } catch (error) {
       console.error('Failed to write file:', error)
+      return false
+    }
+  })
+
+  ipcMain.handle('app:getDefaultProjectsPath', async () => {
+    try {
+      const musicPath = app.getPath('music')
+      const bounceProjectsPath = join(musicPath, 'Bounce Projects')
+      await fs.mkdir(bounceProjectsPath, { recursive: true })
+      return bounceProjectsPath
+    } catch (error) {
+      console.error('Failed to get default projects path:', error)
+      return app.getPath('userData')
+    }
+  })
+
+  ipcMain.handle('fs:mkdir', async (event, dirPath) => {
+    try {
+      await fs.mkdir(dirPath, { recursive: true })
+      return true
+    } catch (error) {
+      console.error('Failed to create directory:', error)
+      return false
+    }
+  })
+
+  ipcMain.handle('fs:exists', async (event, filePath) => {
+    try {
+      await fs.access(filePath)
+      return true
+    } catch {
       return false
     }
   })
