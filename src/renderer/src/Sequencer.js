@@ -25,9 +25,9 @@ export class Sequencer {
     this.patterns = {}; // { trackId: [ { note, step, durationSteps, scheduled, sourceNode } ] }
     this.timeSignature = { numerator: 4, denominator: 4 };
 
-    // UI Elements
-    this.playheadEl = document.querySelector('.playhead');
-    this.lcdPosition = document.querySelector('.time-display .lcd-value');
+    // UI Elements (Lazy initialized)
+    this.playheadEl = null;
+    this.lcdPosition = null;
 
     // px per second: 120 BPM * 50px/beat = 100px/s
     this.pxPerSecond = 100;
@@ -195,8 +195,18 @@ export class Sequencer {
       });
     }
 
-    if (this.playheadEl) this.playheadEl.style.left = '0px';
-    if (this.lcdPosition) this.lcdPosition.textContent = '001 : 01 : 00';
+    this._scheduledMetronomeBeats = new Set();
+
+    const playhead = this.playheadEl || document.querySelector('.playhead');
+    if (playhead) {
+      this.playheadEl = playhead;
+      playhead.style.left = '0px';
+    }
+    const lcd = this.lcdPosition || document.querySelector('.time-display .lcd-value');
+    if (lcd) {
+      this.lcdPosition = lcd;
+      lcd.textContent = '001 : 01 : 00';
+    }
   }
 
   pause() {
@@ -374,6 +384,7 @@ export class Sequencer {
         n._scheduledAt = new Set();
       });
     }
+    this._scheduledMetronomeBeats = new Set();
   }
 
   // ── Automation Playback ────────────────────────────────────────────────
@@ -427,6 +438,7 @@ export class Sequencer {
         const newCurrentTime = engine.ctx.currentTime - this.startTime;
         this._scheduleClips(newCurrentTime, lookahead);
         this._schedulePatterns(newCurrentTime, lookahead);
+        this._scheduleMetronome(newCurrentTime, lookahead);
         this._applyAutomation(newCurrentTime);
         requestAnimationFrame(() => this.scheduleLoop());
         return;
@@ -438,12 +450,114 @@ export class Sequencer {
 
     this._scheduleClips(currentTime, lookahead);
     this._schedulePatterns(currentTime, lookahead);
+    this._scheduleMetronome(currentTime, lookahead);
     this._applyAutomation(currentTime);
 
     requestAnimationFrame(() => this.scheduleLoop());
   }
 
+  _scheduleMetronome(currentTime, lookahead) {
+    if (!this.metronomeEnabled || !this.isPlaying) return;
+
+    const beatsPerSecond = this.bpm / 60;
+    const secondsPerBeat = 1 / beatsPerSecond;
+
+    const startBeat = Math.floor(currentTime / secondsPerBeat);
+    const endBeat = Math.floor((currentTime + lookahead) / secondsPerBeat);
+
+    if (!this._scheduledMetronomeBeats) {
+      this._scheduledMetronomeBeats = new Set();
+    }
+
+    for (let beat = startBeat; beat <= endBeat; beat++) {
+      const beatTime = beat * secondsPerBeat;
+      if (beatTime >= currentTime && beatTime < currentTime + lookahead) {
+        if (!this._scheduledMetronomeBeats.has(beat)) {
+          this._scheduledMetronomeBeats.add(beat);
+          
+          const exactTime = this.startTime + beatTime;
+          const beatsPerBar = this.timeSignature.numerator || 4;
+          const isDownbeat = (beat % beatsPerBar) === 0;
+          
+          this.playMetronomeClick(exactTime, isDownbeat);
+        }
+      }
+    }
+  }
+
+  playMetronomeClick(exactTime, isDownbeat) {
+    const ctx = engine.ctx;
+    const soundType = this.metronomeSound || localStorage.getItem('bounce.metronomeSound') || 'woodblock';
+
+    if (soundType === 'digital') {
+      // 1. Digital Beep (precise sine wave beep)
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(engine.masterGain || ctx.destination);
+      
+      osc.type = 'sine';
+      const freq = isDownbeat ? 880 : 440;
+      osc.frequency.setValueAtTime(freq, exactTime);
+      
+      const volume = isDownbeat ? 0.30 : 0.18;
+      gain.gain.setValueAtTime(volume, exactTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, exactTime + 0.08);
+      
+      osc.start(exactTime);
+      osc.stop(exactTime + 0.1);
+    } else if (soundType === 'acoustic') {
+      // 2. Stick Click / Acoustic Closed Hat (high-passed white noise burst)
+      const bufferSize = ctx.sampleRate * 0.05; // 50ms buffer
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      
+      const noiseNode = ctx.createBufferSource();
+      noiseNode.buffer = buffer;
+      
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.setValueAtTime(isDownbeat ? 4000 : 2500, exactTime);
+      
+      const gain = ctx.createGain();
+      
+      noiseNode.connect(filter);
+      filter.connect(gain);
+      gain.connect(engine.masterGain || ctx.destination);
+      
+      const volume = isDownbeat ? 0.40 : 0.24;
+      gain.gain.setValueAtTime(volume, exactTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, exactTime + 0.03); // ultra-fast acoustic decay!
+      
+      noiseNode.start(exactTime);
+      noiseNode.stop(exactTime + 0.05);
+    } else {
+      // 3. Woodblock (default triangle block synth)
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(engine.masterGain || ctx.destination);
+      
+      osc.type = 'triangle';
+      const freq = isDownbeat ? 1000 : 600;
+      osc.frequency.setValueAtTime(freq, exactTime);
+      
+      const volume = isDownbeat ? 0.35 : 0.22;
+      gain.gain.setValueAtTime(volume, exactTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, exactTime + 0.08);
+      
+      osc.start(exactTime);
+      osc.stop(exactTime + 0.1);
+    }
+  }
+
   updatePlayhead(timeInSeconds) {
+    if (!this.playheadEl) {
+      this.playheadEl = document.querySelector('.playhead');
+    }
     if (!this.playheadEl) return;
     const pxPos = timeInSeconds * this.pxPerSecond;
     this.playheadEl.style.left = `${pxPos}px`;
@@ -463,6 +577,9 @@ export class Sequencer {
   }
 
   updateLCD(timeInSeconds) {
+    if (!this.lcdPosition) {
+      this.lcdPosition = document.querySelector('.time-display .lcd-value');
+    }
     if (!this.lcdPosition) return;
     const beatsPerSecond = this.bpm / 60;
     const totalBeats = timeInSeconds * beatsPerSecond;

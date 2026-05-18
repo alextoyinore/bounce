@@ -322,6 +322,22 @@ function init() {
       loopBtn.classList.toggle('active', sequencer.loopEnabled)
     })
 
+    // Metronome Toggle inside LCD
+    const metroBtn = document.getElementById('metronome-toggle-btn');
+    const metroStatus = document.getElementById('metronome-status-display');
+    if (metroBtn && metroStatus) {
+      metroBtn.addEventListener('click', () => {
+        sequencer.metronomeEnabled = !sequencer.metronomeEnabled;
+        if (sequencer.metronomeEnabled) {
+          metroStatus.textContent = 'ON';
+          metroStatus.style.color = 'var(--accent-color)';
+        } else {
+          metroStatus.textContent = 'OFF';
+          metroStatus.style.color = 'var(--text-secondary)';
+        }
+      });
+    }
+
     skipBackBtn?.addEventListener('click', async () => {
       await stopAllRecordings();
       sequencer.stop();
@@ -1371,33 +1387,38 @@ function init() {
       channel.className = 'mixer-channel'
       channel.dataset.trackId = trackId
       channel.innerHTML = `
-        <div class="channel-name">${trackName}</div>
-        <div class="channel-eq-section">
-          <div class="eq-knob-container">
-            <div class="eq-knob" data-band="high" title="High: 0.0 dB">
-              <div class="knob-indicator"></div>
+        <div class="channel-name-vertical">${trackName}</div>
+        <div class="channel-main-strip">
+          <div class="channel-eq-section">
+            <div class="eq-knob-container">
+              <div class="eq-knob" data-band="high" title="High: 0.0 dB">
+                <div class="knob-indicator"></div>
+              </div>
+            </div>
+            <div class="eq-knob-container">
+              <div class="eq-knob" data-band="mid" title="Mid: 0.0 dB">
+                <div class="knob-indicator"></div>
+              </div>
+            </div>
+            <div class="eq-knob-container">
+              <div class="eq-knob" data-band="low" title="Low: 0.0 dB">
+                <div class="knob-indicator"></div>
+              </div>
             </div>
           </div>
-          <div class="eq-knob-container">
-            <div class="eq-knob" data-band="mid" title="Mid: 0.0 dB">
-              <div class="knob-indicator"></div>
+          <div class="channel-controls">
+            <div class="btn-group">
+              <button class="c-btn m-btn">M</button>
+              <button class="c-btn s-btn">S</button>
             </div>
+            <div class="pan-knob"><div class="knob-indicator"></div></div>
           </div>
-          <div class="eq-knob-container">
-            <div class="eq-knob" data-band="low" title="Low: 0.0 dB">
-              <div class="knob-indicator"></div>
-            </div>
+          <div class="fader-section">
+            <div class="fader-track"><div class="fader-handle" style="bottom: 80%;"></div></div>
+            <div class="peak-meter"><div class="meter-level" style="height: 0%;"></div></div>
           </div>
+          <div class="channel-db">0.0dB</div>
         </div>
-        <div class="channel-controls">
-          <div class="btn-group"><button class="c-btn m-btn">M</button><button class="c-btn s-btn">S</button></div>
-          <div class="pan-knob"><div class="knob-indicator"></div></div>
-        </div>
-        <div class="fader-section">
-          <div class="fader-track"><div class="fader-handle" style="bottom: 80%;"></div></div>
-          <div class="peak-meter"><div class="meter-level" style="height: 0%;"></div></div>
-        </div>
-        <div class="channel-db">0.0dB</div>
       `
       mixerContainer.appendChild(channel)
 
@@ -1429,7 +1450,7 @@ function init() {
       const rBtnH = header.querySelector('.r-btn')
       const volSlider = header.querySelector('.track-vol-slider')
 
-      const nameElM = channel.querySelector('.channel-name')
+      const nameElM = channel.querySelector('.channel-name-vertical, .channel-name')
       const mBtnM = channel.querySelector('.m-btn')
       const sBtnM = channel.querySelector('.s-btn')
       const faderEl = channel.querySelector('.fader-handle')
@@ -1681,15 +1702,15 @@ function init() {
         
         let restoreItemHtml = '';
         if (canRestore) {
-          restoreItemHtml = `<div class="track-context-item" id="ctx-restore" style="color: var(--accent-color); font-weight: 700;">✨ Restore Pattern Clip</div>`;
+          restoreItemHtml = `<div class="track-context-item" id="ctx-restore" style="color: var(--accent-color); font-weight: 700;">Restore Pattern Clip</div>`;
         }
 
         menu.innerHTML = `
           ${restoreItemHtml}
-          <div class="track-context-item" id="ctx-color">▧ Change Color</div>
-          <div class="track-context-item" id="ctx-properties">⚙ Sound Properties</div>
-          <div class="track-context-item" id="ctx-rename">✎ Rename Track</div>
-          <div class="track-context-item danger" id="ctx-delete">✕ Delete Track</div>
+          <div class="track-context-item" id="ctx-color">Change Color</div>
+          <div class="track-context-item" id="ctx-properties">Sound Properties</div>
+          <div class="track-context-item" id="ctx-rename">Rename Track</div>
+          <div class="track-context-item danger" id="ctx-delete">Delete Track</div>
         `;
 
         menu.style.left = `${e.clientX}px`;
@@ -2240,7 +2261,7 @@ function init() {
         if (!meter) return;
         
         let peak = 0;
-        if (channel.classList.contains('master') || channel.querySelector('.channel-name')?.textContent === 'Master') {
+        if (channel.classList.contains('master') || channel.querySelector('.channel-name-vertical, .channel-name')?.textContent === 'Master') {
           peak = engine.getMasterPeakLevel();
         } else if (channel.dataset.trackId) {
           const trackObj = engine.getTrack(channel.dataset.trackId);
@@ -4531,6 +4552,12 @@ function init() {
       const followCheck = document.getElementById('pref-follow-playhead');
       if (followCheck) followCheck.checked = localStorage.getItem('bounce.followPlayhead') !== 'false';
 
+      const metroSoundSelect = document.getElementById('pref-metronome-sound');
+      if (metroSoundSelect) {
+        metroSoundSelect.value = localStorage.getItem('bounce.metronomeSound') || 'woodblock';
+        sequencer.metronomeSound = metroSoundSelect.value;
+      }
+
       const monitorCheck = document.getElementById('pref-input-monitor');
       if (monitorCheck) monitorCheck.checked = localStorage.getItem('bounce.inputMonitor') === 'true';
       
@@ -4572,6 +4599,44 @@ function init() {
       if (e.target === prefModal) closePreferencesModal();
     });
 
+    // ======= HELP MODAL HANDLERS =======
+    const helpModal = document.getElementById('help-modal');
+    const helpCloseBtn = document.getElementById('help-close-btn');
+    const menuHelp = document.getElementById('menu-help');
+
+    menuHelp?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+      if (helpModal) helpModal.style.display = 'flex';
+    });
+
+    helpCloseBtn?.addEventListener('click', () => {
+      if (helpModal) helpModal.style.display = 'none';
+    });
+
+    helpModal?.addEventListener('mousedown', (e) => {
+      if (e.target === helpModal) helpModal.style.display = 'none';
+    });
+
+    // ======= ABOUT MODAL HANDLERS =======
+    const aboutModal = document.getElementById('about-modal');
+    const aboutCloseBtn = document.getElementById('about-close-btn');
+    const menuAbout = document.getElementById('menu-about');
+
+    menuAbout?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+      if (aboutModal) aboutModal.style.display = 'flex';
+    });
+
+    aboutCloseBtn?.addEventListener('click', () => {
+      if (aboutModal) aboutModal.style.display = 'none';
+    });
+
+    aboutModal?.addEventListener('mousedown', (e) => {
+      if (e.target === aboutModal) aboutModal.style.display = 'none';
+    });
+
     // Theme Switcher clicks
     document.querySelectorAll('.theme-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -4596,6 +4661,27 @@ function init() {
         darkBtn.classList.toggle('active', theme === 'dark');
         lightBtn.classList.toggle('active', theme === 'light');
       }
+
+      // Re-apply current accent color so it correctly respects the light mode darkening
+      const currentAccent = localStorage.getItem('bounce.accentColor') || '#00e5ff';
+      applyAccentColor(currentAccent);
+    }
+
+    function darkenColor(hex, percent) {
+      hex = hex.replace(/^\s*#|\s*$/g, '');
+      if (hex.length === 3) {
+        hex = hex.replace(/(.)/g, '$1$1');
+      }
+      let r = parseInt(hex.substr(0, 2), 16);
+      let g = parseInt(hex.substr(2, 2), 16);
+      let b = parseInt(hex.substr(4, 2), 16);
+
+      r = Math.max(0, Math.floor(r * (1 - percent / 100)));
+      g = Math.max(0, Math.floor(g * (1 - percent / 100)));
+      b = Math.max(0, Math.floor(b * (1 - percent / 100)));
+
+      const pad = val => val.toString(16).padStart(2, '0');
+      return `#${pad(r)}${pad(g)}${pad(b)}`;
     }
 
     // Swatch Color clicks
@@ -4618,9 +4704,28 @@ function init() {
       });
     });
 
+    // Reset Accent Color button click
+    document.getElementById('pref-reset-accent')?.addEventListener('click', () => {
+      const defaultAccent = '#00e5ff';
+      applyAccentColor(defaultAccent);
+      document.querySelectorAll('.accent-swatch').forEach(sw => {
+        sw.classList.toggle('active', sw.dataset.color === defaultAccent);
+      });
+      const customColorInput = document.getElementById('pref-accent-custom');
+      if (customColorInput) customColorInput.value = defaultAccent;
+      showToast('Accent color reset to original Cyan');
+    });
+
     function applyAccentColor(color) {
-      document.documentElement.style.setProperty('--accent-color', color);
-      document.documentElement.style.setProperty('--accent-hover', `${color}dd`);
+      let colorToApply = color;
+      const isLightTheme = document.body.classList.contains('light-theme') || 
+                            (localStorage.getItem('bounce.theme') === 'light');
+      if (isLightTheme) {
+        colorToApply = darkenColor(color, 25);
+      }
+      
+      document.body.style.setProperty('--accent-color', colorToApply);
+      document.body.style.setProperty('--accent-hover', `${colorToApply}dd`);
       localStorage.setItem('bounce.accentColor', color);
     }
 
@@ -4672,6 +4777,12 @@ function init() {
       if (bpmInput) localStorage.setItem('bounce.defaultBPM', bpmInput.value);
       if (snapSelect) localStorage.setItem('bounce.defaultSnap', snapSelect.value);
       if (followCheck) localStorage.setItem('bounce.followPlayhead', followCheck.checked.toString());
+
+      const metroSoundSelect = document.getElementById('pref-metronome-sound');
+      if (metroSoundSelect) {
+        localStorage.setItem('bounce.metronomeSound', metroSoundSelect.value);
+        sequencer.metronomeSound = metroSoundSelect.value;
+      }
       
       if (monitorCheck) {
         localStorage.setItem('bounce.inputMonitor', monitorCheck.checked.toString());
@@ -4699,6 +4810,7 @@ function init() {
         localStorage.removeItem('bounce.followPlayhead');
         localStorage.removeItem('bounce.inputMonitor');
         localStorage.removeItem('bounce.autoNameClips');
+        localStorage.removeItem('bounce.metronomeSound');
 
         // Apply defaults immediately
         applyTheme('dark');

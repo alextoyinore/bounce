@@ -52,6 +52,9 @@
             <span class="menu-label">Options</span>
             <div class="dropdown-menu">
               <div class="dropdown-item" id="menu-preferences">Preferences... <span style="margin-left: auto; font-size: 0.65rem; color: var(--text-secondary);">Ctrl+,</span></div>
+              <div class="dropdown-separator" style="height: 1px; background: var(--border-color); margin: 4px 0;"></div>
+              <div class="dropdown-item" id="menu-help">Help</div>
+              <div class="dropdown-item" id="menu-about">About Bounce...</div>
             </div>
           </div>
         </div>
@@ -81,6 +84,10 @@
         <div class="lcd-section time-display">
           <div class="lcd-label">POSITION</div>
           <div class="lcd-value" id="position-display">001 : 01 : 00</div>
+        </div>
+        <div class="lcd-section metronome-section" id="metronome-toggle-btn" title="Toggle Metronome (Click to enable)" style="cursor: pointer; border-left: 1px solid var(--border-color); padding-left: 10px; margin-left: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-width: 48px; -webkit-app-region: no-drag;">
+          <div class="lcd-label" style="pointer-events: none;">METRO</div>
+          <div class="metronome-icon-indicator" id="metronome-status-display" style="font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); transition: color 0.15s ease-in-out; pointer-events: none;">OFF</div>
         </div>
       </div>
 
@@ -208,22 +215,24 @@
       <div id="mixer-view" class="footer-panel active">
         <!-- Master Channel -->
         <div class="mixer-channel master">
-          <div class="channel-name">Master</div>
-          <div class="channel-controls">
-            <button class="c-btn m-btn">M</button>
-            <div class="pan-knob">
-              <div class="knob-indicator"></div>
+          <div class="channel-name-vertical">Master</div>
+          <div class="channel-main-strip">
+            <div class="channel-controls">
+              <button class="c-btn m-btn">M</button>
+              <div class="pan-knob">
+                <div class="knob-indicator"></div>
+              </div>
             </div>
+            <div class="fader-section">
+              <div class="fader-track">
+                <div class="fader-handle" style="bottom: 70%;"></div>
+              </div>
+              <div class="peak-meter">
+                <div class="meter-level" style="height: 0%;"></div>
+              </div>
+            </div>
+            <div class="channel-db">0.0</div>
           </div>
-          <div class="fader-section">
-            <div class="fader-track">
-              <div class="fader-handle" style="bottom: 70%;"></div>
-            </div>
-            <div class="peak-meter">
-              <div class="meter-level" style="height: 65%;"></div>
-            </div>
-          </div>
-          <div class="channel-db">0.0</div>
         </div>
         <div id="mixer-channels-container" style="display:flex; gap:8px;"></div>
       </div>
@@ -290,10 +299,10 @@
       </div>
       <div class="settings-body">
         <nav class="settings-nav">
-          <button class="settings-tab active" data-tab="audio">🔊 Audio</button>
-          <button class="settings-tab" data-tab="appearance">🎨 Appearance</button>
-          <button class="settings-tab" data-tab="general">⚙ General</button>
-          <button class="settings-tab" data-tab="recording">⏺ Recording</button>
+          <button class="settings-tab active" data-tab="audio">Audio</button>
+          <button class="settings-tab" data-tab="appearance">Appearance</button>
+          <button class="settings-tab" data-tab="general">General</button>
+          <button class="settings-tab" data-tab="recording">Recording</button>
         </nav>
         <div class="settings-content">
 
@@ -333,8 +342,8 @@
             <div class="settings-row">
               <label class="settings-label">Color Theme</label>
               <div class="theme-switcher">
-                <button class="theme-btn active" id="theme-dark" data-theme="dark">🌑 Dark</button>
-                <button class="theme-btn" id="theme-light" data-theme="light">☀️ Light</button>
+                <button class="theme-btn active" id="theme-dark" data-theme="dark">Dark</button>
+                <button class="theme-btn" id="theme-light" data-theme="light">Light</button>
               </div>
             </div>
             <div class="settings-row">
@@ -349,6 +358,7 @@
                   <button class="accent-swatch" data-color="#ff4444" style="background:#ff4444;" title="Red"></button>
                 </div>
                 <input type="color" class="settings-color-input" id="pref-accent-custom" value="#00e5ff" title="Custom color">
+                <button class="btn btn-secondary" id="pref-reset-accent" style="padding: 4px 8px; font-size: 0.65rem;" title="Reset to original primary color">Reset</button>
               </div>
             </div>
             <div class="settings-row">
@@ -402,6 +412,14 @@
                 <span class="toggle-track"><span class="toggle-thumb"></span></span>
               </label>
             </div>
+             <div class="settings-row">
+               <label class="settings-label">Metronome Sound</label>
+               <select class="settings-select" id="pref-metronome-sound">
+                 <option value="woodblock" selected>Woodblock</option>
+                 <option value="digital">Digital Beep</option>
+                 <option value="acoustic">Stick Click (Acoustic)</option>
+               </select>
+             </div>
           </div>
 
           <!-- RECORDING TAB -->
@@ -430,6 +448,60 @@
       <div class="settings-footer">
         <button class="settings-btn-secondary" id="settings-reset-btn">Reset to Defaults</button>
         <button class="settings-btn-primary" id="settings-apply-btn">Apply &amp; Close</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ======= HELP MODAL ======= -->
+  <div id="help-modal" class="settings-overlay" style="display:none;">
+    <div class="settings-panel" style="max-width: 500px; width: 90%;">
+      <div class="settings-header">
+        <span class="settings-title">Help &amp; Documentation</span>
+        <button class="settings-close" id="help-close-btn">✕</button>
+      </div>
+      <div class="settings-body" style="padding: 16px; flex-direction: column; overflow-y: auto; max-height: 400px; color: var(--text-primary); gap: 12px;">
+        <h3 style="margin: 0; color: var(--accent-color); font-size: 0.9rem;">⌨ Keyboard Shortcuts</h3>
+        <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse; margin-bottom: 8px;">
+          <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: bold;">Spacebar</td><td style="text-align: right; color: var(--text-secondary);">Play / Pause Transport</td></tr>
+          <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: bold;">Ctrl + S</td><td style="text-align: right; color: var(--text-secondary);">Save Project</td></tr>
+          <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: bold;">Ctrl + ,</td><td style="text-align: right; color: var(--text-secondary);">Open Preferences</td></tr>
+          <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: bold;">Ctrl + Wheel</td><td style="text-align: right; color: var(--text-secondary);">Zoom Arranger Timeline</td></tr>
+          <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: bold;">Delete / Backspace</td><td style="text-align: right; color: var(--text-secondary);">Delete Selected Clip / Note</td></tr>
+        </table>
+        <h3 style="color: var(--accent-color); font-size: 0.9rem; margin-top: 8px; margin-bottom: 4px;">🎛 Quick Tips</h3>
+        <ul style="font-size: 0.75rem; color: var(--text-secondary); padding-left: 16px; margin: 0; line-height: 1.5;">
+          <li>To paint automation points, click the <strong>"A"</strong> button on any track header, then click and drag inside the automation lane.</li>
+          <li>In the Step Sequencer, clicking any step triggers playback. Right-click steps to delete.</li>
+          <li>Hover your mouse over any EQ dial inside the mixer channels to view its live decibel tooltip value.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======= ABOUT MODAL ======= -->
+  <div id="about-modal" class="settings-overlay" style="display:none;">
+    <div class="settings-panel" style="max-width: 400px; width: 90%; text-align: center;">
+      <div class="settings-header" style="justify-content: flex-end; border-bottom: none; padding-bottom: 0;">
+        <button class="settings-close" id="about-close-btn">✕</button>
+      </div>
+      <div class="settings-body" style="padding: 12px 16px 24px 16px; flex-direction: column; align-items: center; color: var(--text-primary);">
+        <!-- Sleek App Icon Wave Visualizer -->
+        <div style="width: 64px; height: 64px; border-radius: 16px; background: linear-gradient(135deg, var(--accent-color) 0%, #111115 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(0,0,0,0.5); margin-bottom: 16px;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 12C2 12 5 3 12 3C19 3 22 12 22 12C22 12 19 21 12 21C5 21 2 12 2 12Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="12" cy="12" r="3" fill="var(--accent-color)" stroke="white" stroke-width="2"/>
+          </svg>
+        </div>
+        <h2 style="margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: 0.05em; color: var(--text-primary);">BOUNCE DAW</h2>
+        <span style="font-size: 0.7rem; color: var(--text-secondary); letter-spacing: 0.1em; text-transform: uppercase;">Version 1.2.0 - Stable</span>
+        
+        <p style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.6; margin: 16px 0 24px 0; max-width: 300px;">
+          A professional, ultra-high-performance web-based Digital Audio Workstation. Fully responsive density mechanics, synthesized beat generation, and state-of-the-art MIDI &amp; audio rendering.
+        </p>
+        
+        <div style="border-top: 1px solid var(--border-color); width: 100%; padding-top: 16px; font-size: 0.65rem; color: var(--text-secondary);">
+          © 2026 Bounce Audio Technologies. All Rights Reserved.
+        </div>
       </div>
     </div>
   </div>

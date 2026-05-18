@@ -958,15 +958,17 @@ footer {
 }
 
 .mixer-channel {
-  width: 72px;
+  width: 50px; /* Increased from 44px for perfect knob clearance */
   height: 100%;
   background: var(--bg-color);
   border: 1px solid var(--border-color);
   border-radius: var(--radius);
   display: flex;
-  flex-direction: column;
-  padding: 8px 4px;
+  flex-direction: row; /* Horizontal split: name on left, strip on right */
+  padding: 0;
+  padding-right: 4px; /* Breathing room on the right */
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .mixer-channel.master {
@@ -975,15 +977,45 @@ footer {
   background: #151518;
 }
 
-.channel-name {
-  font-size: 0.7rem;
-  font-weight: 600;
+.channel-name-vertical {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.62rem;
+  font-weight: 700;
   text-align: center;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-  white-space: nowrap;
+  color: var(--text-secondary);
+  padding: 8px 3px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  max-height: 100%;
+  box-sizing: border-box;
+}
+
+body.light-theme .channel-name-vertical {
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--text-secondary);
+}
+
+.channel-main-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  flex-grow: 1;
+  height: 100%;
+  padding: 6px 2px;
+  box-sizing: border-box;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.channel-name {
+  display: none; /* fallback legacy class hidden */
 }
 
 .channel-inserts {
@@ -1023,19 +1055,26 @@ footer {
 
 .btn-group {
   display: flex;
-  gap: 2px;
+  flex-direction: column; /* Stack vertically */
+  gap: 3px;
+  width: 100%;
+  align-items: center;
 }
 
 .c-btn {
-  width: 24px;
-  height: 20px;
+  width: 20px; /* Slimmer to fit */
+  height: 16px; /* Shorter to fit */
   background: var(--surface-color);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   font-weight: 700;
   border-radius: 2px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
 .c-btn:hover {
@@ -1075,25 +1114,26 @@ footer {
 .fader-section {
   display: flex;
   justify-content: center;
-  gap: 8px;
+  gap: 4px;
   flex-grow: 1;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  width: 100%;
 }
 
 .fader-track {
-  width: 32px;
+  width: 14px;
   background: #08080a;
-  border-radius: 4px;
+  border-radius: 3px;
   position: relative;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .fader-handle {
   width: 100%;
-  height: 20px;
+  height: 16px;
   background: linear-gradient(180deg, #3e3e48, #2d2d34);
   border: 1px solid #555;
-  border-radius: 3px;
+  border-radius: 2px;
   position: absolute;
   left: 0;
   cursor: grab;
@@ -1109,13 +1149,13 @@ footer {
   height: 2px;
   background: var(--track-color, var(--accent-color));
   transform: translateY(-50%);
-  box-shadow: 0 0 4px var(--track-color, var(--accent-color));
+  box-shadow: 0 0 3px var(--track-color, var(--accent-color));
 }
 
 .peak-meter {
-  width: 8px;
+  width: 5px;
   background: #08080a;
-  border-radius: 2px;
+  border-radius: 1.5px;
   display: flex;
   align-items: flex-end;
   overflow: hidden;
@@ -1129,9 +1169,10 @@ footer {
 
 .channel-db {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.65rem;
+  font-size: 0.58rem;
   text-align: center;
   color: var(--text-secondary);
+  width: 100%;
 }
 
 /* Track Customization */
@@ -2126,11 +2167,92 @@ body.light-theme .mixer-channel {
 body.light-theme .auto-lane { background: rgba(0,0,0,0.04); }
 body.light-theme .auto-lane-label { background: #f8f8fc; }
 
-/* UI Density */
-body.density-compact { font-size: 0.8rem; }
-body.density-compact .track-header { height: 44px; }
-body.density-comfortable { font-size: 0.9rem; }
-body.density-comfortable .track-header { height: 56px; }
+body.light-theme .fader-track {
+  background: #eaeaea !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.light-theme .peak-meter {
+  background: #eaeaea !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.light-theme .fader-handle {
+  background: linear-gradient(180deg, #ffffff, #eaeaea) !important;
+  border: 1px solid #c8c8d2 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* UI Density Overrides */
+body.density-compact {
+  font-size: 0.78rem;
+}
+body.density-compact .track-header {
+  height: 48px !important;
+  padding: 4px 8px !important;
+}
+body.density-compact .track-lane {
+  height: 48px !important;
+}
+body.density-compact .empty-lane-placeholder {
+  inset: 3px 6px !important;
+}
+body.density-compact .seq-row {
+  height: 36px !important;
+}
+body.density-compact .mixer-channel {
+  width: 44px !important;
+  padding: 0 !important;
+  padding-right: 3px !important;
+}
+body.density-compact .channel-name-vertical {
+  font-size: 0.56rem !important;
+  padding: 4px 2px !important;
+}
+body.density-compact .channel-main-strip {
+  padding: 4px 1px !important;
+}
+body.density-compact .channel-eq-section {
+  gap: 3px !important;
+  padding: 2px 1px !important;
+  margin-bottom: 4px !important;
+}
+body.density-compact .eq-knob {
+  width: 18px !important;
+  height: 18px !important;
+}
+body.density-compact .fader-section {
+  margin-bottom: 4px !important;
+}
+
+body.density-comfortable {
+  font-size: 0.88rem;
+}
+body.density-comfortable .track-header {
+  height: 78px !important;
+  padding: 10px 12px !important;
+}
+body.density-comfortable .track-lane {
+  height: 78px !important;
+}
+body.density-comfortable .empty-lane-placeholder {
+  inset: 7px 12px !important;
+}
+body.density-comfortable .seq-row {
+  height: 52px !important;
+}
+body.density-comfortable .mixer-channel {
+  width: 60px !important;
+  padding: 0 !important;
+  padding-right: 6px !important;
+}
+body.density-comfortable .channel-name-vertical {
+  font-size: 0.68rem !important;
+  padding: 10px 5px !important;
+}
+body.density-comfortable .channel-main-strip {
+  padding: 8px 4px !important;
+}
 
 /* ======================================================
    SETTINGS MODAL
