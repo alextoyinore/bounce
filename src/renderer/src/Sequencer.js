@@ -1,5 +1,19 @@
 import { engine } from './AudioEngine.js';
 
+// ── Automation interpolation (linear between breakpoints) ──────────────────
+function interpolateAutomation(points, time) {
+  if (!points || points.length === 0) return null;
+  if (time <= points[0].time) return points[0].value;
+  if (time >= points[points.length - 1].time) return points[points.length - 1].value;
+  for (let i = 0; i < points.length - 1; i++) {
+    if (time >= points[i].time && time < points[i + 1].time) {
+      const t = (time - points[i].time) / (points[i + 1].time - points[i].time);
+      return points[i].value + t * (points[i + 1].value - points[i].value);
+    }
+  }
+  return null;
+}
+
 export class Sequencer {
   constructor() {
     this.bpm = 120;
@@ -19,6 +33,7 @@ export class Sequencer {
     this.pxPerSecond = 100;
     this.gridSnapInBeats = 0.25; // 1/16 default
     this.loopEnabled = true;
+    this.isRecording = false; // Global record-arm flag (set true when any track is armed)
   }
 
   setZoom(newPxPerSecond) {
@@ -323,6 +338,38 @@ export class Sequencer {
     }
   }
 
+  // ── Automation Playback ────────────────────────────────────────────────
+  _applyAutomation(currentTime) {
+    engine.tracks.forEach((track) => {
+      if (!track.automations) return;
+      for (const [param, points] of Object.entries(track.automations)) {
+        if (!points || points.length === 0) continue;
+        const value = interpolateAutomation(points, currentTime);
+        if (value === null) continue;
+
+        if (param === 'volume') {
+          track.baseVolume = Math.max(0, Math.min(1.5, value));
+          engine.updateTrackVolumes();
+        } else if (param === 'pan') {
+          track.setPan(Math.max(-1, Math.min(1, value)));
+        } else if (param.startsWith('fx.')) {
+          const parts = param.split('.');
+          if (parts.length >= 3) {
+            const fxId = parts[1];
+            const paramName = parts.slice(2).join('.');
+            const fx = track.effects.find(f => f.id === fxId);
+            if (fx && fx.updateParams) fx.updateParams({ [paramName]: value });
+          }
+        } else if (param.startsWith('gen.')) {
+          const paramName = param.slice(4);
+          if (track.generator && track.generator.params) {
+            track.generator.params[paramName] = value;
+          }
+        }
+      }
+    });
+  }
+
   scheduleLoop() {
     if (!this.isPlaying) return;
 
@@ -337,17 +384,12 @@ export class Sequencer {
     // ── Loop / Auto-stop ─────────────────────────────────────────────
     if (maxTime > 0 && currentTime >= maxTime) {
       if (this.loopEnabled) {
-        // Advance the origin clock by exactly one loop length
         this.startTime += maxTime;
-
-        // Reset ALL scheduled flags immediately so beat 0 is caught this tick
         this._resetScheduled();
-
-        // Schedule from the beginning inline (don't wait for next rAF)
-        const newCurrentTime = engine.ctx.currentTime - this.startTime; // ≈ 0
+        const newCurrentTime = engine.ctx.currentTime - this.startTime;
         this._scheduleClips(newCurrentTime, lookahead);
         this._schedulePatterns(newCurrentTime, lookahead);
-
+        this._applyAutomation(newCurrentTime);
         requestAnimationFrame(() => this.scheduleLoop());
         return;
       } else if (currentTime > maxTime + 0.5) {
@@ -358,6 +400,7 @@ export class Sequencer {
 
     this._scheduleClips(currentTime, lookahead);
     this._schedulePatterns(currentTime, lookahead);
+    this._applyAutomation(currentTime);
 
     requestAnimationFrame(() => this.scheduleLoop());
   }

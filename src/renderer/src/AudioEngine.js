@@ -226,6 +226,140 @@ function createEffectNodes(ctx, type) {
       }
     };
   }
+  else if (type === 'flanger') {
+    fxObj.name = 'Flanger';
+    inputNode  = ctx.createGain();
+    outputNode = ctx.createGain();
+    const dryNode = ctx.createGain();
+    const wetNode = ctx.createGain();
+
+    // Comb-filter: short delay modulated by LFO
+    const delayNode    = ctx.createDelay(0.03);
+    const feedbackNode = ctx.createGain();
+    const lfo         = ctx.createOscillator();
+    const lfoDepth    = ctx.createGain();
+
+    lfo.type = 'sine';
+
+    // Routing
+    inputNode.connect(dryNode);
+    inputNode.connect(delayNode);
+    delayNode.connect(feedbackNode);
+    feedbackNode.connect(delayNode);   // feedback loop
+    delayNode.connect(wetNode);
+    dryNode.connect(outputNode);
+    wetNode.connect(outputNode);
+
+    // LFO → delay time
+    lfo.connect(lfoDepth);
+    lfoDepth.connect(delayNode.delayTime);
+
+    params = { mix: 0.5, rate: 0.3, depth: 0.003, feedback: 0.6, delay: 0.005 };
+    dryNode.gain.value     = 1 - params.mix;
+    wetNode.gain.value     = params.mix;
+    delayNode.delayTime.value = params.delay;
+    feedbackNode.gain.value   = params.feedback;
+    lfo.frequency.value    = params.rate;
+    lfoDepth.gain.value    = params.depth;
+    lfo.start();
+
+    updateParams = (newParams) => {
+      if (newParams.mix !== undefined) {
+        params.mix = newParams.mix;
+        dryNode.gain.value = 1 - params.mix;
+        wetNode.gain.value = params.mix;
+      }
+      if (newParams.rate !== undefined) {
+        params.rate = newParams.rate;
+        lfo.frequency.setValueAtTime(params.rate, ctx.currentTime);
+      }
+      if (newParams.depth !== undefined) {
+        params.depth = newParams.depth;
+        lfoDepth.gain.setValueAtTime(params.depth, ctx.currentTime);
+      }
+      if (newParams.feedback !== undefined) {
+        params.feedback = Math.max(0, Math.min(0.95, newParams.feedback));
+        feedbackNode.gain.setValueAtTime(params.feedback, ctx.currentTime);
+      }
+      if (newParams.delay !== undefined) {
+        params.delay = newParams.delay;
+        delayNode.delayTime.setValueAtTime(params.delay, ctx.currentTime);
+      }
+    };
+  }
+  else if (type === 'phaser') {
+    fxObj.name = 'Phaser';
+    inputNode  = ctx.createGain();
+    outputNode = ctx.createGain();
+    const dryNode  = ctx.createGain();
+    const wetNode  = ctx.createGain();
+    const lfo      = ctx.createOscillator();
+    const lfoGain  = ctx.createGain();
+
+    // Chain of all-pass filters whose cutoff is swept by the LFO
+    const STAGES = 6;
+    const allpasses = [];
+    for (let i = 0; i < STAGES; i++) {
+      const ap = ctx.createBiquadFilter();
+      ap.type = 'allpass';
+      ap.frequency.value = 1000;
+      ap.Q.value = 0.5;
+      allpasses.push(ap);
+    }
+
+    // Connect all-pass chain
+    let prev = inputNode;
+    allpasses.forEach(ap => { prev.connect(ap); prev = ap; });
+    const chainOut = allpasses[STAGES - 1];
+
+    // Feedback from chain output back to chain input
+    const feedbackNode = ctx.createGain();
+    chainOut.connect(feedbackNode);
+    feedbackNode.connect(allpasses[0]);
+
+    inputNode.connect(dryNode);
+    chainOut.connect(wetNode);
+    dryNode.connect(outputNode);
+    wetNode.connect(outputNode);
+
+    // LFO → all-pass frequencies
+    lfo.type = 'sine';
+    lfo.connect(lfoGain);
+    allpasses.forEach(ap => lfoGain.connect(ap.frequency));
+
+    params = { mix: 0.5, rate: 0.5, depth: 800, feedback: 0.3, baseFreq: 1000 };
+    dryNode.gain.value  = 1 - params.mix;
+    wetNode.gain.value  = params.mix;
+    lfo.frequency.value = params.rate;
+    lfoGain.gain.value  = params.depth;
+    feedbackNode.gain.value = params.feedback;
+    allpasses.forEach(ap => { ap.frequency.value = params.baseFreq; });
+    lfo.start();
+
+    updateParams = (newParams) => {
+      if (newParams.mix !== undefined) {
+        params.mix = newParams.mix;
+        dryNode.gain.value = 1 - params.mix;
+        wetNode.gain.value = params.mix;
+      }
+      if (newParams.rate !== undefined) {
+        params.rate = newParams.rate;
+        lfo.frequency.setValueAtTime(params.rate, ctx.currentTime);
+      }
+      if (newParams.depth !== undefined) {
+        params.depth = newParams.depth;
+        lfoGain.gain.setValueAtTime(params.depth, ctx.currentTime);
+      }
+      if (newParams.feedback !== undefined) {
+        params.feedback = Math.max(0, Math.min(0.95, newParams.feedback));
+        feedbackNode.gain.setValueAtTime(params.feedback, ctx.currentTime);
+      }
+      if (newParams.baseFreq !== undefined) {
+        params.baseFreq = newParams.baseFreq;
+        allpasses.forEach(ap => ap.frequency.setValueAtTime(params.baseFreq, ctx.currentTime));
+      }
+    };
+  }
   else {
     fxObj.name = type;
     inputNode = ctx.createGain();
@@ -261,6 +395,9 @@ class Track {
     // Effects chain
     this.effects = [];
     this.inputNode = this.ctx.createGain(); // Sources connect here
+
+    // Automation data: { 'volume': [{time, value}], 'pan': [], 'fx.<id>.<param>': [], 'gen.<param>': [] }
+    this.automations = {};
     
     // State
     this.baseVolume = 0.8;
@@ -391,6 +528,7 @@ class AudioEngine {
     // Track registry
     this.tracks = new Map();
     this.soloedTracks = new Set();
+    this.activeRecorders = new Map(); // trackId → { mediaRecorder, chunks, stream }
     
     console.log('AudioEngine initialized');
   }
@@ -726,6 +864,50 @@ class AudioEngine {
     }
     
     return null;
+  }
+  // ── Audio Input Recording ───────────────────────────────────────
+  async startRecording(trackId) {
+    if (this.activeRecorders.has(trackId)) return true; // already recording
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg']
+        .find(t => MediaRecorder.isTypeSupported(t)) || '';
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+      const chunks = [];
+      mr.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      mr.start(100);
+      this.activeRecorders.set(trackId, { mediaRecorder: mr, chunks, stream });
+      return true;
+    } catch (err) {
+      console.error('Mic access denied or unavailable:', err);
+      return false;
+    }
+  }
+
+  async stopRecording(trackId) {
+    const rec = this.activeRecorders.get(trackId);
+    if (!rec) return null;
+    return new Promise(resolve => {
+      const { mediaRecorder, chunks, stream } = rec;
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        try {
+          const blob = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' });
+          const arrayBuffer = await blob.arrayBuffer();
+          const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
+          resolve({ audioBuffer, blob });
+        } catch (err) {
+          console.error('Could not decode recorded audio:', err);
+          resolve(null);
+        }
+      };
+      mediaRecorder.stop();
+      this.activeRecorders.delete(trackId);
+    });
+  }
+
+  isRecordingTrack(trackId) {
+    return this.activeRecorders.has(trackId);
   }
 }
 

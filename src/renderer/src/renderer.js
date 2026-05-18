@@ -235,19 +235,85 @@ function init() {
     const pauseSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M216,48V208a16,16,0,0,1-16,16H160a16,16,0,0,1-16-16V48a16,16,0,0,1,16-16h40A16,16,0,0,1,216,48ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32ZM200,208V48H160V208ZM80,208V48H56V208Z"></path></svg>'
     const fileSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M128,40a8,8,0,0,1,8,8V208a8,8,0,0,1-16,0V48A8,8,0,0,1,128,40ZM80,80a8,8,0,0,0-8,8v80a8,8,0,0,0,16,0V88A8,8,0,0,0,80,80ZM176,80a8,8,0,0,0-8,8v80a8,8,0,0,0,16,0V88A8,8,0,0,0,176,80ZM32,104a8,8,0,0,0-8,8v32a8,8,0,0,0,16,0V112A8,8,0,0,0,32,104ZM224,104a8,8,0,0,0-8,8v32a8,8,0,0,0,16,0V112A8,8,0,0,0,224,104Z"></path></svg>'
 
-    playBtn?.addEventListener('click', () => {
+    // ── Audio Recording helpers ─────────────────────────────────────
+    const recordingStartsByTrack = {}; // trackId → timeline start time (seconds)
+
+    function showRecordingIndicator(trackId, active) {
+      const lane = document.querySelector(`.track-lane[data-track-id="${trackId}"]`);
+      if (lane) lane.classList.toggle('recording', active);
+    }
+
+    function createRecordedClip(trackId, startTime, audioBuffer) {
+      const lane = document.querySelector(`.track-lane[data-track-id="${trackId}"]`);
+      if (!lane) return;
+      const duration = audioBuffer.duration;
+      const clipEl = document.createElement('div');
+      clipEl.className = 'clip audio-clip recorded-clip';
+      clipEl.style.left = `${startTime * sequencer.pxPerSecond}px`;
+      clipEl.style.width = `${Math.max(20, duration * sequencer.pxPerSecond)}px`;
+      clipEl.textContent = '● REC';
+      clipEl.dataset.startTime = startTime;
+      clipEl.dataset.duration = duration;
+      const rh = document.createElement('div');
+      rh.className = 'resize-handle';
+      clipEl.appendChild(rh);
+      lane.appendChild(clipEl);
+      sequencer.addClip({
+        buffer: audioBuffer,
+        startTime,
+        duration,
+        originalDuration: duration,
+        trackId,
+        scheduled: false,
+        uiElement: clipEl,
+        _fileName: 'Recording',
+        _filePath: null
+      });
+      showHudFeedback('●', 'Recording captured');
+    }
+
+    async function startArmedRecordings() {
+      for (const [trackId, track] of engine.tracks.entries()) {
+        if (!track.isArmed) continue;
+        recordingStartsByTrack[trackId] = sequencer.pauseTime || 0;
+        const ok = await engine.startRecording(trackId);
+        if (ok) {
+          showRecordingIndicator(trackId, true);
+        } else {
+          showHudFeedback('⚠️', 'Mic access denied');
+        }
+      }
+    }
+
+    async function stopAllRecordings() {
+      const ids = [...engine.activeRecorders.keys()];
+      for (const trackId of ids) {
+        const result = await engine.stopRecording(trackId);
+        showRecordingIndicator(trackId, false);
+        if (result && result.audioBuffer) {
+          createRecordedClip(trackId, recordingStartsByTrack[trackId] || 0, result.audioBuffer);
+        }
+      }
+    }
+
+    // ── Transport Controls ──────────────────────────────────────────
+    playBtn?.addEventListener('click', async () => {
       if (sequencer.isPlaying) {
-        sequencer.pause()
-        playBtn.innerHTML = playSvg
+        await stopAllRecordings();
+        sequencer.pause();
+        playBtn.innerHTML = playSvg;
       } else {
-        sequencer.play()
-        playBtn.innerHTML = pauseSvg
+        await engine.resume();
+        await startArmedRecordings();
+        sequencer.play();
+        playBtn.innerHTML = pauseSvg;
       }
     })
 
-    stopBtn?.addEventListener('click', () => {
-      sequencer.stop()
-      playBtn.innerHTML = playSvg
+    stopBtn?.addEventListener('click', async () => {
+      await stopAllRecordings();
+      sequencer.stop();
+      playBtn.innerHTML = playSvg;
     })
 
     loopBtn?.addEventListener('click', () => {
@@ -255,9 +321,10 @@ function init() {
       loopBtn.classList.toggle('active', sequencer.loopEnabled)
     })
 
-    skipBackBtn?.addEventListener('click', () => {
-      sequencer.stop()
-      playBtn.innerHTML = playSvg
+    skipBackBtn?.addEventListener('click', async () => {
+      await stopAllRecordings();
+      sequencer.stop();
+      playBtn.innerHTML = playSvg;
     })
 
     // Browser Logic
@@ -1234,6 +1301,7 @@ function init() {
           <button class="t-btn m-btn">M</button>
           <button class="t-btn s-btn">S</button>
           <button class="t-btn r-btn"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"></path></svg></button>
+          <button class="t-btn auto-btn" title="Show/Hide Automation Lane">A</button>
           <div class="track-pan-knob" title="Panning">
             <div class="knob-pointer"></div>
           </div>
@@ -1250,6 +1318,37 @@ function init() {
       lane.className = 'track-lane'
       lane.dataset.trackId = trackId
       laneContainer.appendChild(lane)
+
+      // Automation label (header column)
+      const autoLabel = document.createElement('div')
+      autoLabel.className = 'auto-lane-label'
+      autoLabel.dataset.trackId = trackId
+      autoLabel.innerHTML = `
+        <div class="auto-lane-title">⚡ AUTOMATION</div>
+        <select class="auto-param-select">
+          <option value="volume">Volume</option>
+          <option value="pan">Pan</option>
+          <option value="gen.cutoff">Filter Cutoff</option>
+          <option value="gen.resonance">Resonance</option>
+          <option value="gen.attack">Attack</option>
+          <option value="gen.decay">Decay</option>
+          <option value="gen.sustain">Sustain</option>
+          <option value="gen.release">Release</option>
+          <option value="gen.pitch">Pitch</option>
+        </select>
+      `
+      headerContainer.appendChild(autoLabel)
+
+      // Automation canvas lane (lane column)
+      const autoLane = document.createElement('div')
+      autoLane.className = 'auto-lane'
+      autoLane.dataset.trackId = trackId
+      const autoCanvas = document.createElement('canvas')
+      autoCanvas.className = 'auto-canvas'
+      autoCanvas.height = 60
+      autoCanvas.width = 30000
+      autoLane.appendChild(autoCanvas)
+      laneContainer.appendChild(autoLane)
 
       // 4. Mixer Channel
       const mixerContainer = document.getElementById('mixer-channels-container')
@@ -1320,6 +1419,136 @@ function init() {
       trackUIMap[trackId].headers.push({ mBtn: mBtnH, sBtn: sBtnH, rBtn: rBtnH, nameEl, colorPicker, laneEl: lane, headerEl: header, volKnob, knobPointer, panKnob, panPointer })
       trackUIMap[trackId].mixers.push({ mBtn: mBtnM, sBtn: sBtnM, nameEl: nameElM, channelEl: channel, faderEl, faderTrackEl, dbLabel, panKnob: mixerPanKnob })
       trackUIMap[trackId].seqRows.push(seqRow)
+
+      // ── Automation Lane Setup ──────────────────────────────────
+      const AUTO_SPECS = {
+        'volume':        { min:0,     max:1.5  },
+        'pan':           { min:-1,    max:1    },
+        'gen.cutoff':    { min:20,    max:20000 },
+        'gen.resonance': { min:0.1,   max:20   },
+        'gen.attack':    { min:0.001, max:2    },
+        'gen.decay':     { min:0.01,  max:2    },
+        'gen.sustain':   { min:0,     max:1    },
+        'gen.release':   { min:0.01,  max:3    },
+        'gen.pitch':     { min:-24,   max:24   },
+      };
+      let currentAutoParam = 'volume';
+      let autoVisible = false;
+      const paramSelect = autoLabel.querySelector('.auto-param-select');
+      const ctx2d = autoCanvas.getContext('2d');
+
+      const getAutoPoints = () => {
+        const tk = engine.getTrack(trackId);
+        if (!tk) return [];
+        if (!tk.automations[currentAutoParam]) tk.automations[currentAutoParam] = [];
+        return tk.automations[currentAutoParam];
+      };
+
+      const recordAutoBreakpoint = (param, value) => {
+        if (!sequencer.isPlaying || !sequencer.isRecording) return;
+        const tk = engine.getTrack(trackId);
+        if (!tk || !tk.isArmed) return;
+        const t = Math.max(0, engine.ctx.currentTime - sequencer.startTime);
+        if (!tk.automations[param]) tk.automations[param] = [];
+        tk.automations[param].push({ time: t, value });
+        tk.automations[param].sort((a, b) => a.time - b.time);
+        if (currentAutoParam === param && autoVisible) drawAutoCanvas();
+      };
+
+      function drawAutoCanvas() {
+        if (!autoVisible) return;
+        const W = autoCanvas.width, H = 60, pps = sequencer.pxPerSecond;
+        const spec = AUTO_SPECS[currentAutoParam] || { min:0, max:1 };
+        const { min, max } = spec;
+        const pts = getAutoPoints();
+        ctx2d.clearRect(0, 0, W, H);
+        ctx2d.fillStyle = 'rgba(0,0,0,0.3)'; ctx2d.fillRect(0, 0, W, H);
+        // bar grid
+        const secPerBar = (sequencer.timeSignature.numerator / (sequencer.bpm / 60));
+        const pxPerBar = secPerBar * pps;
+        ctx2d.strokeStyle = 'rgba(255,255,255,0.06)'; ctx2d.lineWidth = 1;
+        for (let x = 0; x < W; x += pxPerBar) { ctx2d.beginPath(); ctx2d.moveTo(x,0); ctx2d.lineTo(x,H); ctx2d.stroke(); }
+        // center reference line
+        const ctr = (0 - min) / (max - min);
+        if (ctr > 0 && ctr < 1) {
+          ctx2d.strokeStyle = 'rgba(255,255,255,0.1)'; ctx2d.setLineDash([3,3]);
+          ctx2d.beginPath(); ctx2d.moveTo(0, H - ctr*H); ctx2d.lineTo(W, H - ctr*H); ctx2d.stroke();
+          ctx2d.setLineDash([]);
+        }
+        if (pts.length === 0) return;
+        const toY = v => H - Math.max(0, Math.min(1, (v-min)/(max-min))) * H;
+        const sorted = [...pts].sort((a,b) => a.time - b.time);
+        // fill + stroke curve
+        ctx2d.beginPath();
+        ctx2d.moveTo(0, toY(sorted[0].value));
+        sorted.forEach(p => ctx2d.lineTo(p.time * pps, toY(p.value)));
+        ctx2d.lineTo(W, toY(sorted[sorted.length-1].value));
+        ctx2d.strokeStyle = 'rgba(0,229,255,0.85)'; ctx2d.lineWidth = 1.5; ctx2d.stroke();
+        ctx2d.lineTo(W,H); ctx2d.lineTo(0,H); ctx2d.closePath();
+        ctx2d.fillStyle = 'rgba(0,229,255,0.07)'; ctx2d.fill();
+        // breakpoints
+        sorted.forEach(p => {
+          const x = p.time * pps, y = toY(p.value);
+          ctx2d.beginPath(); ctx2d.arc(x, y, 4, 0, Math.PI*2);
+          ctx2d.fillStyle = '#00e5ff'; ctx2d.fill();
+          ctx2d.strokeStyle = '#fff'; ctx2d.lineWidth = 1; ctx2d.stroke();
+        });
+        // playhead
+        if (sequencer.isPlaying) {
+          const ph = (engine.ctx.currentTime - sequencer.startTime) * pps;
+          ctx2d.strokeStyle = 'rgba(255,255,255,0.35)'; ctx2d.lineWidth = 1;
+          ctx2d.beginPath(); ctx2d.moveTo(ph,0); ctx2d.lineTo(ph,H); ctx2d.stroke();
+        }
+      }
+
+      trackUIMap[trackId].drawAutoCanvas = drawAutoCanvas;
+
+      // Canvas mouse interaction
+      const HIT = 8;
+      let dragPt = null;
+      autoCanvas.addEventListener('contextmenu', e => e.preventDefault());
+      autoCanvas.addEventListener('mousedown', e => {
+        const rect = autoCanvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const pps = sequencer.pxPerSecond;
+        const spec = AUTO_SPECS[currentAutoParam] || { min:0, max:1 };
+        const { min, max } = spec;
+        const pts = getAutoPoints();
+        const toY = v => 60 - Math.max(0,Math.min(1,(v-min)/(max-min)))*60;
+        if (e.button === 2) {
+          const idx = pts.findIndex(p => { const dx=p.time*pps-mx, dy=toY(p.value)-my; return Math.sqrt(dx*dx+dy*dy)<HIT; });
+          if (idx !== -1) { pts.splice(idx, 1); drawAutoCanvas(); }
+          return;
+        }
+        dragPt = pts.find(p => { const dx=p.time*pps-mx, dy=toY(p.value)-my; return Math.sqrt(dx*dx+dy*dy)<HIT; });
+        if (!dragPt) {
+          const newPt = { time: Math.max(0, mx/pps), value: Math.max(min,Math.min(max, min+(1-my/60)*(max-min))) };
+          pts.push(newPt); pts.sort((a,b)=>a.time-b.time); dragPt = newPt; drawAutoCanvas();
+        }
+      });
+      document.addEventListener('mousemove', e => {
+        if (!dragPt) return;
+        const rect = autoCanvas.getBoundingClientRect();
+        const spec = AUTO_SPECS[currentAutoParam] || { min:0, max:1 };
+        const { min, max } = spec;
+        dragPt.time = Math.max(0, (e.clientX - rect.left) / sequencer.pxPerSecond);
+        dragPt.value = Math.max(min, Math.min(max, min + (1 - (e.clientY - rect.top)/60)*(max-min)));
+        getAutoPoints().sort((a,b)=>a.time-b.time); drawAutoCanvas();
+      });
+      document.addEventListener('mouseup', () => { dragPt = null; });
+
+      paramSelect.addEventListener('change', () => { currentAutoParam = paramSelect.value; drawAutoCanvas(); });
+
+      // AUTO button toggle
+      const autoBtn = header.querySelector('.auto-btn');
+      autoBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        autoVisible = !autoVisible;
+        autoLane.classList.toggle('visible', autoVisible);
+        autoLabel.classList.toggle('visible', autoVisible);
+        autoBtn.classList.toggle('active', autoVisible);
+        if (autoVisible) drawAutoCanvas();
+      });
 
       // Generate step sequencer grid for THIS track only
       const stepCountSelect = document.getElementById('step-count-select')
@@ -1441,6 +1670,8 @@ function init() {
           sequencer.patternClips = sequencer.patternClips.filter(pc => pc.trackId !== trackId);
           header.remove();
           lane.remove();
+          autoLabel.remove();
+          autoLane.remove();
           channel.remove();
           seqRow.remove();
           const prSelect = document.getElementById('pr-track-select');
@@ -1467,7 +1698,7 @@ function init() {
           const gainValue = (currentVal / 100) * 1.5
           tracks[trackName].setVolume(gainValue)
           engine.updateTrackVolumes()
-          
+          recordAutoBreakpoint('volume', gainValue)
           // Sync mixer fader
           if (faderEl) faderEl.style.bottom = `${currentVal}%`
           const db = gainValue <= 0 ? -Infinity : 20 * Math.log10(gainValue)
@@ -1553,6 +1784,7 @@ function init() {
           if (tNode && tNode.setPan) {
             tNode.setPan(audioPanValue)
           }
+          recordAutoBreakpoint('pan', audioPanValue)
         }
 
         // Expose updatePan on trackUIMap so we can trigger it externally
@@ -1691,6 +1923,8 @@ function init() {
         const color = e.target.value
         header.style.setProperty('--track-color', color)
         lane.style.setProperty('--track-color', color)
+        autoLabel.style.setProperty('--track-color', color)
+        autoLane.style.setProperty('--track-color', color)
         channel.style.setProperty('--track-color', color)
         seqRow.style.setProperty('--track-color', color)
       })
@@ -1713,7 +1947,9 @@ function init() {
       sBtnH.addEventListener('click', toggleSolo); sBtnM.addEventListener('click', toggleSolo)
       rBtnH.addEventListener('click', () => { 
         const isArmed = engine.toggleRecord(trackId)
-        syncTrackUI(trackId, 'record', isArmed) 
+        syncTrackUI(trackId, 'record', isArmed)
+        // Update global recording flag: true if any track is armed
+        sequencer.isRecording = Array.from(engine.tracks.values()).some(t => t.isArmed)
         dawHistory.pushState(isArmed ? 'Arm Track' : 'Disarm Track')
       })
 
@@ -2726,7 +2962,8 @@ function init() {
           generator: engineTrack?.generator ?? null,
           isMuted: engineTrack?.isMuted ?? false,
           isSoloed: engineTrack?.isSoloed ?? false,
-          effects: effectsData
+          effects: effectsData,
+          automations: engineTrack?.automations ?? {}
         })
       })
 
@@ -3183,6 +3420,10 @@ function init() {
               }
             }
           }
+          // Restore automations
+          if (track.automations && engineTrack) {
+            engineTrack.automations = track.automations
+          }
         }
 
         // Restore Master Effects
@@ -3300,7 +3541,9 @@ function init() {
       { id: 'delay', name: 'Delay', icon: '⏳' },
       { id: 'distortion', name: 'Distortion', icon: '🔥' },
       { id: 'compressor', name: 'Compressor', icon: '🗜️' },
-      { id: 'eq', name: 'Equalizer', icon: '🎚️' }
+      { id: 'eq', name: 'Equalizer', icon: '🎚️' },
+      { id: 'flanger', name: 'Flanger', icon: '🌀' },
+      { id: 'phaser', name: 'Phaser', icon: '🔮' }
     ]
 
     const generators = [
@@ -3500,6 +3743,13 @@ function init() {
           if (paramName === 'mid') { min = -12; max = 12; }
           if (paramName === 'high') { min = -12; max = 12; }
           if (paramName === 'feedback') { min = 0; max = 0.95; }
+          // Flanger
+          if (paramName === 'rate')  { min = 0.01; max = 10; }
+          if (paramName === 'depth' && fxObj.type === 'flanger') { min = 0.0001; max = 0.015; }
+          if (paramName === 'delay') { min = 0.001; max = 0.02; }
+          // Phaser
+          if (paramName === 'depth' && fxObj.type === 'phaser')  { min = 0; max = 4000; }
+          if (paramName === 'baseFreq') { min = 100; max = 8000; }
           
           let currentVal = fxObj.params[paramName];
           

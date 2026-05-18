@@ -1952,7 +1952,7 @@ footer {
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
   transition: background 0.15s, color 0.15s;
 }
 
@@ -1964,4 +1964,132 @@ footer {
 .track-context-item.danger:hover {
   background: #ff3b30;
   color: #fff;
-}
+}
+
+/* ======== AUTOMATION LANES ======== */
+.auto-btn {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 3px;
+  padding: 2px 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.auto-btn:hover { border-color: var(--accent-color); color: var(--accent-color); }
+.auto-btn.active {
+  background: rgba(0, 229, 255, 0.12);
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.2);
+}
+.auto-lane-label {
+  height: 60px;
+  background: rgba(14, 14, 20, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 3px solid var(--track-color, transparent);
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6px 10px;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.auto-lane-label.visible { display: flex; }
+.auto-lane-title {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: var(--accent-color);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.auto-param-select {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  font-size: 0.62rem;
+  border-radius: 3px;
+  padding: 2px 4px;
+  width: 100%;
+  cursor: pointer;
+  font-family: 'Outfit', sans-serif;
+}
+.auto-param-select:focus { outline: none; border-color: var(--accent-color); }
+.auto-lane {
+  height: 60px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 3px solid var(--track-color, transparent);
+  position: relative;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+  display: none;
+}
+.auto-lane.visible { display: block; }
+.auto-canvas { display: block; cursor: crosshair; }
+.rec-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--record-color, #ff3366);
+  box-shadow: 0 0 6px var(--record-color, #ff3366);
+  animation: rec-pulse 0.8s ease-in-out infinite alternate;
+  display: none;
+  flex-shrink: 0;
+}
+.rec-dot.active { display: block; }
+@keyframes rec-pulse {
+  from { opacity: 0.4; box-shadow: 0 0 3px var(--record-color, #ff3366); }
+  to   { opacity: 1.0; box-shadow: 0 0 10px var(--record-color, #ff3366); }
+}
+
+/* ======== RECORDING STATE ======== */
+/* Live recording indicator on track lane */
+.track-lane.recording {
+  outline: 2px solid rgba(255, 51, 51, 0.6);
+  outline-offset: -2px;
+}
+
+.track-lane.recording::after {
+  content: '\25cf REC';
+  position: sticky;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-block;
+  background: rgba(220, 30, 30, 0.92);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 10px;
+  animation: rec-pulse 0.65s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 20;
+  margin: auto 0;
+}
+
+/* Recorded audio clip style */
+.recorded-clip {
+  background: linear-gradient(135deg,
+    rgba(220, 40, 40, 0.75) 0%,
+    rgba(160, 10, 10, 0.85) 100%) !important;
+  border: 1px solid rgba(255, 120, 120, 0.45) !important;
+  color: rgba(255, 220, 220, 0.95) !important;
+  font-weight: 700;
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+  box-shadow: 0 2px 8px rgba(220, 0, 0, 0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+.recorded-clip:hover {
+  filter: brightness(1.15);
+  box-shadow: 0 4px 14px rgba(255, 60, 60, 0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
