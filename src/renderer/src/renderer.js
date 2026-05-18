@@ -349,11 +349,11 @@ function init() {
       metroBtn.addEventListener('click', () => {
         sequencer.metronomeEnabled = !sequencer.metronomeEnabled;
         if (sequencer.metronomeEnabled) {
-          metroStatus.textContent = 'ON';
           metroStatus.style.color = 'var(--accent-color)';
+          metroBtn.style.textShadow = '0 0 10px rgba(0, 229, 255, 0.4)';
         } else {
-          metroStatus.textContent = 'OFF';
           metroStatus.style.color = 'var(--text-secondary)';
+          metroBtn.style.textShadow = 'none';
         }
       });
     }
@@ -962,28 +962,63 @@ function init() {
     if (!arrangementView) {
       console.error('Arrangement view not found!')
     }
+
+    function applyArrangerZoom(val, isFromSlider = false) {
+      let px;
+      if (isFromSlider) {
+        if (val <= 50) {
+          px = 10 + (val - 1) * (40 / 49);
+        } else {
+          px = 50 + (val - 50) * (450 / 50);
+        }
+      } else {
+        px = val;
+      }
+      
+      const clampedPx = Math.max(10, Math.min(500, px));
+      sequencer.setZoom(clampedPx);
+      
+      const label = document.getElementById('arranger-zoom-label');
+      if (label) label.textContent = `${Math.round((clampedPx / 50) * 100)}%`;
+      
+      const slider = document.getElementById('arranger-zoom-slider');
+      if (slider) {
+        let sliderVal;
+        if (clampedPx <= 50) {
+          sliderVal = 1 + (clampedPx - 10) * (49 / 40);
+        } else {
+          sliderVal = 50 + (clampedPx - 50) * (50 / 450);
+        }
+        if (Math.abs(parseFloat(slider.value) - sliderVal) > 0.5) {
+          slider.value = sliderVal;
+        }
+      }
+
+      const clips = document.querySelectorAll('.clip');
+      clips.forEach(clip => {
+        if (clip.dataset.startTime && clip.dataset.duration) {
+          const start = parseFloat(clip.dataset.startTime);
+          const duration = parseFloat(clip.dataset.duration);
+          clip.style.left = `${start * sequencer.pxPerSecond}px`;
+          clip.style.width = `${Math.max(20, duration * sequencer.pxPerSecond)}px`;
+        }
+      });
+      drawTimeline();
+      if (typeof drawPianoRollTimeline === 'function') drawPianoRollTimeline();
+      if (typeof rebuildPianoRollNotes === 'function') rebuildPianoRollNotes();
+    }
+
+    document.getElementById('arranger-zoom-slider')?.addEventListener('input', (e) => {
+      applyArrangerZoom(parseFloat(e.target.value), true);
+    });
+
     if (arrangementView) {
       // Zoom
       arrangementView.addEventListener('wheel', (e) => {
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault()
-          const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-          const newPx = sequencer.pxPerSecond * zoomFactor;
-          sequencer.setZoom(newPx);
-          
-          const clips = document.querySelectorAll('.clip')
-          clips.forEach(clip => {
-            if (clip.dataset.startTime && clip.dataset.duration) {
-              const start = parseFloat(clip.dataset.startTime)
-              const duration = parseFloat(clip.dataset.duration)
-              clip.style.left = `${start * sequencer.pxPerSecond}px`
-              clip.style.width = `${Math.max(20, duration * sequencer.pxPerSecond)}px`
-            }
-          })
-          drawTimeline()
-          // Keep PR aligned with arranger zoom
-          if (typeof drawPianoRollTimeline === 'function') drawPianoRollTimeline()
-          if (typeof rebuildPianoRollNotes === 'function') rebuildPianoRollNotes()
+          const factor = e.deltaY > 0 ? 0.9 : 1.1;
+          applyArrangerZoom(sequencer.pxPerSecond * factor);
         }
       }, { passive: false })
 
@@ -1710,6 +1745,7 @@ function init() {
           prSelect.value = trackId
           prSelect.dispatchEvent(new Event('change'))
         }
+        if (window.updatePluginsFooter) window.updatePluginsFooter()
       }
       header.addEventListener('mousedown', selectTrack)
       channel.addEventListener('mousedown', selectTrack)
@@ -2456,6 +2492,7 @@ function init() {
         currentTrackId = 'master'
         document.querySelectorAll('.track-header, .mixer-channel, .seq-row').forEach(el => el.classList.remove('selected'))
         masterChannel.classList.add('selected')
+        if (window.updatePluginsFooter) window.updatePluginsFooter()
       })
     }
 
@@ -2709,10 +2746,35 @@ function init() {
       return Math.max(4, secondsPer16th * sequencer.pxPerSecond * prZoomFactor)
     }
 
-    function applyPrZoom(newFactor) {
-      prZoomFactor = Math.max(0.25, Math.min(8, newFactor))
+    function applyPrZoom(val, isFromSlider = false) {
+      let factor;
+      if (isFromSlider) {
+        if (val <= 50) {
+          factor = 0.25 + (val - 1) * (0.75 / 49);
+        } else {
+          factor = 1.0 + (val - 50) * (7.0 / 50);
+        }
+      } else {
+        factor = val;
+      }
+      
+      prZoomFactor = Math.max(0.25, Math.min(8, factor))
       const label = document.getElementById('pr-zoom-label')
       if (label) label.textContent = `${Math.round(prZoomFactor * 100)}%`
+      
+      const slider = document.getElementById('pr-zoom-slider')
+      if (slider) {
+        let sliderVal;
+        if (prZoomFactor <= 1.0) {
+          sliderVal = 1 + (prZoomFactor - 0.25) * (49 / 0.75);
+        } else {
+          sliderVal = 50 + (prZoomFactor - 1.0) * (50 / 7.0);
+        }
+        if (Math.abs(parseFloat(slider.value) - sliderVal) > 0.5) {
+          slider.value = sliderVal;
+        }
+      }
+      
       drawPianoRollTimeline()
       rebuildPianoRollNotes()
       // update step-sequencer cell width
@@ -3248,30 +3310,43 @@ function init() {
           const isResize = prDragState.type === 'resize' || prDragState.type === 'paint';
           const actionName = isResize ? 'Resize Note' : (prDragState.isNew ? 'Create Note' : 'Move Note');
 
-          prDragState.items?.forEach(item => {
-            item.el.classList.remove('dragging');
-            const row = item.el.closest('.pr-row');
-            const finalNoteName = row ? row.dataset.note : item.noteName;
-            const finalStep = parseInt(item.el.dataset.step);
-            const finalDur = parseFloat(item.el.dataset.duration || item.startDur);
-
-            if (!prDragState.isNew) {
-              sequencer.removeNoteFromPattern(prDragState.trackId, item.noteName, item.startStep);
-              const oldStepSeqRow = document.querySelector(`.seq-steps[data-instrument="${prDragState.trackId}"][data-note="${item.noteName}"]`);
-              if (oldStepSeqRow) {
-                const s = oldStepSeqRow.querySelector(`[data-step-index="${item.startStep}"]`);
-                if (s) s.classList.remove('active');
-              }
-            }
-            sequencer.addNoteToPattern(prDragState.trackId, finalNoteName, finalStep, finalDur);
+          if (isResize) {
+            const finalDur = parseFloat(prDragState.noteElement.dataset.duration || prDragState.startDur);
+            sequencer.removeNoteFromPattern(prDragState.trackId, prDragState.noteName, prDragState.startStep);
+            sequencer.addNoteToPattern(prDragState.trackId, prDragState.noteName, prDragState.startStep, finalDur);
             
-            const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${prDragState.trackId}"][data-note="${finalNoteName}"]`);
+            const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${prDragState.trackId}"][data-note="${prDragState.noteName}"]`);
             if (stepSeqRow) {
-              const s = stepSeqRow.querySelector(`[data-step-index="${finalStep}"]`);
+              const s = stepSeqRow.querySelector(`[data-step-index="${prDragState.startStep}"]`);
               if (s) s.classList.add('active');
             }
             lastPrNoteDuration = finalDur;
-          });
+          } else {
+            prDragState.items?.forEach(item => {
+              item.el.classList.remove('dragging');
+              const row = item.el.closest('.pr-row');
+              const finalNoteName = row ? row.dataset.note : item.noteName;
+              const finalStep = parseInt(item.el.dataset.step);
+              const finalDur = parseFloat(item.el.dataset.duration || item.startDur);
+
+              if (!prDragState.isNew) {
+                sequencer.removeNoteFromPattern(prDragState.trackId, item.noteName, item.startStep);
+                const oldStepSeqRow = document.querySelector(`.seq-steps[data-instrument="${prDragState.trackId}"][data-note="${item.noteName}"]`);
+                if (oldStepSeqRow) {
+                  const s = oldStepSeqRow.querySelector(`[data-step-index="${item.startStep}"]`);
+                  if (s) s.classList.remove('active');
+                }
+              }
+              sequencer.addNoteToPattern(prDragState.trackId, finalNoteName, finalStep, finalDur);
+              
+              const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${prDragState.trackId}"][data-note="${finalNoteName}"]`);
+              if (stepSeqRow) {
+                const s = stepSeqRow.querySelector(`[data-step-index="${finalStep}"]`);
+                if (s) s.classList.add('active');
+              }
+              lastPrNoteDuration = finalDur;
+            });
+          }
           syncPatternClip(prDragState.trackId);
           prDragState = null;
           dawHistory.pushState(actionName);
@@ -3377,9 +3452,9 @@ function init() {
     drawPianoRollTimeline();
 
     // ── Piano Roll Zoom Controls ───────────────────────────────────
-    document.getElementById('pr-zoom-in')?.addEventListener('click', () => applyPrZoom(prZoomFactor * 1.25))
-    document.getElementById('pr-zoom-out')?.addEventListener('click', () => applyPrZoom(prZoomFactor / 1.25))
-    document.getElementById('pr-zoom-reset')?.addEventListener('click', () => applyPrZoom(1.0))
+    document.getElementById('pr-zoom-slider')?.addEventListener('input', (e) => {
+      applyPrZoom(parseFloat(e.target.value), true);
+    })
 
     const pianoRollView = document.getElementById('piano-roll-view')
     if (pianoRollView) {
@@ -3550,13 +3625,13 @@ function init() {
           document.title = `Bounce — ${folderName}`
           const titleEl = document.getElementById('project-title')
           if (titleEl) titleEl.textContent = folderName
-          showHudFeedback("💾", `Saved Project Set: ${folderName}`)
+          showToast(`💾 Saved Project: ${folderName}`)
         } else {
-          alert('Save failed.')
+          showToast('Save failed.')
         }
       } catch (err) {
         console.error('DoSave failed:', err);
-        alert('Could not save project folder: ' + err.message);
+        showToast('Could not save project: ' + err.message);
       }
     }
 
@@ -4140,126 +4215,111 @@ function init() {
       if (!list) return
       list.innerHTML = ''
 
-      // Track generators
-      engine.tracks.forEach((track, trackId) => {
-        if (track.generator) {
-          const genNames = { sampler: 'Sampler', monosynth: 'Mono Synth', polysynth: 'Poly Synth', fmsynth: 'FM Synth' };
-          const genIcons = { sampler: '📼', monosynth: '🎹', polysynth: '🎼', fmsynth: '📻' };
-          const name = genNames[track.generator.type] || 'Generator';
-          const icon = genIcons[track.generator.type] || '🎹';
-
-          const genItem = document.createElement('div')
-          genItem.className = 'active-plugin-item'
-          genItem.style.borderLeft = '3px solid #00e5ff' // Custom generator color highlight!
-          genItem.innerHTML = `
-            <div class="plugin-item-icon">${icon}</div>
-            <div class="plugin-item-details">
-              <div class="plugin-item-name">${name}</div>
-              <div class="plugin-item-track">${track.name || trackId}</div>
-            </div>
-            <div class="plugin-item-controls">
-              <div class="plugin-item-status" style="background-color:#00e5ff; box-shadow:0 0 8px #00e5ff;"></div>
-              <button class="plugin-item-remove-btn" title="Unload instrument">✕</button>
-            </div>
-          `
-          genItem.addEventListener('dblclick', () => {
-            showGeneratorWindow(trackId)
+      if (currentTrackId === 'master') {
+        // Master plugins
+        if (engine.effects) {
+          engine.effects.forEach(fx => {
+            const fxItem = document.createElement('div')
+            fxItem.className = 'active-plugin-item'
+            fxItem.innerHTML = `
+              <div class="plugin-item-icon">${fx.icon || '🔌'}</div>
+              <div class="plugin-item-details">
+                <div class="plugin-item-name">${fx.name}</div>
+                <div class="plugin-item-track">Master</div>
+              </div>
+              <div class="plugin-item-controls">
+                <div class="plugin-item-status"></div>
+                <button class="plugin-item-remove-btn" title="Remove plugin">✕</button>
+              </div>
+            `
+            fxItem.addEventListener('dblclick', () => { showPluginWindow(fx) })
+            const removeBtn = fxItem.querySelector('.plugin-item-remove-btn')
+            removeBtn.addEventListener('click', (e) => {
+              e.stopPropagation()
+              engine.removeEffect(fx.id)
+              if (openPluginWindows.has(fx.id)) {
+                openPluginWindows.get(fx.id).remove()
+                openPluginWindows.delete(fx.id)
+              }
+              window.updatePluginsFooter()
+              if (window.updateMixerInserts) window.updateMixerInserts()
+              dawHistory.pushState(`Remove ${fx.name} Plugin`)
+            })
+            list.appendChild(fxItem)
           })
-
-          const removeBtn = genItem.querySelector('.plugin-item-remove-btn')
-          removeBtn.addEventListener('click', (e) => {
-            e.stopPropagation()
-            track.generator = null
-            if (openGeneratorWindows.has(trackId)) {
-              openGeneratorWindows.get(trackId).remove()
-              openGeneratorWindows.delete(trackId)
-            }
-            window.updatePluginsFooter()
-            dawHistory.pushState(`Unload Track Generator`)
-          })
-
-          list.appendChild(genItem)
         }
-      })
-      
-      // Track plugins
-      engine.tracks.forEach((track, trackId) => {
-        track.effects.forEach(fx => {
-          const fxItem = document.createElement('div')
-          fxItem.className = 'active-plugin-item'
-          fxItem.innerHTML = `
-            <div class="plugin-item-icon">${fx.icon || '🔌'}</div>
-            <div class="plugin-item-details">
-              <div class="plugin-item-name">${fx.name}</div>
-              <div class="plugin-item-track">${track.name || trackId}</div>
-            </div>
-            <div class="plugin-item-controls">
-              <div class="plugin-item-status"></div>
-              <button class="plugin-item-remove-btn" title="Remove plugin">✕</button>
-            </div>
-          `
-          fxItem.addEventListener('dblclick', () => {
-            showPluginWindow(fx)
-          })
+      } else {
+        const track = engine.getTrack(currentTrackId)
+        if (track) {
+          // Track generator
+          if (track.generator) {
+            const genNames = { sampler: 'Sampler', monosynth: 'Mono Synth', polysynth: 'Poly Synth', fmsynth: 'FM Synth' };
+            const genIcons = { sampler: '📼', monosynth: '🎹', polysynth: '🎼', fmsynth: '📻' };
+            const name = genNames[track.generator.type] || 'Generator';
+            const icon = genIcons[track.generator.type] || '🎹';
 
-          const removeBtn = fxItem.querySelector('.plugin-item-remove-btn')
-          removeBtn.addEventListener('click', (e) => {
-            e.stopPropagation()
-            // Remove from audio engine track
-            track.removeEffect(fx.id)
-            // Close floating plugin window if open
-            if (openPluginWindows.has(fx.id)) {
-              openPluginWindows.get(fx.id).remove()
-              openPluginWindows.delete(fx.id)
-            }
-            // Refresh list
-            window.updatePluginsFooter()
-            if (window.updateMixerInserts) window.updateMixerInserts()
-            dawHistory.pushState(`Remove ${fx.name} Plugin`)
-          })
+            const genItem = document.createElement('div')
+            genItem.className = 'active-plugin-item'
+            genItem.style.borderLeft = '3px solid #00e5ff' // Custom generator color highlight!
+            genItem.innerHTML = `
+              <div class="plugin-item-icon">${icon}</div>
+              <div class="plugin-item-details">
+                <div class="plugin-item-name">${name}</div>
+                <div class="plugin-item-track">${track.name || currentTrackId}</div>
+              </div>
+              <div class="plugin-item-controls">
+                <div class="plugin-item-status" style="background-color:#00e5ff; box-shadow:0 0 8px #00e5ff;"></div>
+                <button class="plugin-item-remove-btn" title="Unload instrument">✕</button>
+              </div>
+            `
+            genItem.addEventListener('dblclick', () => { showGeneratorWindow(currentTrackId) })
+            const removeBtn = genItem.querySelector('.plugin-item-remove-btn')
+            removeBtn.addEventListener('click', (e) => {
+              e.stopPropagation()
+              track.generator = null
+              if (openGeneratorWindows.has(currentTrackId)) {
+                openGeneratorWindows.get(currentTrackId).remove()
+                openGeneratorWindows.delete(currentTrackId)
+              }
+              window.updatePluginsFooter()
+              dawHistory.pushState(`Unload Track Generator`)
+            })
+            list.appendChild(genItem)
+          }
 
-          list.appendChild(fxItem)
-        })
-      })
-
-      // Master plugins
-      if (engine.effects) {
-        engine.effects.forEach(fx => {
-          const fxItem = document.createElement('div')
-          fxItem.className = 'active-plugin-item'
-          fxItem.innerHTML = `
-            <div class="plugin-item-icon">${fx.icon || '🔌'}</div>
-            <div class="plugin-item-details">
-              <div class="plugin-item-name">${fx.name}</div>
-              <div class="plugin-item-track">Master</div>
-            </div>
-            <div class="plugin-item-controls">
-              <div class="plugin-item-status"></div>
-              <button class="plugin-item-remove-btn" title="Remove plugin">✕</button>
-            </div>
-          `
-          fxItem.addEventListener('dblclick', () => {
-            showPluginWindow(fx)
-          })
-
-          const removeBtn = fxItem.querySelector('.plugin-item-remove-btn')
-          removeBtn.addEventListener('click', (e) => {
-            e.stopPropagation()
-            // Remove from master channel
-            engine.removeEffect(fx.id)
-            // Close floating plugin window if open
-            if (openPluginWindows.has(fx.id)) {
-              openPluginWindows.get(fx.id).remove()
-              openPluginWindows.delete(fx.id)
-            }
-            // Refresh list
-            window.updatePluginsFooter()
-            if (window.updateMixerInserts) window.updateMixerInserts()
-            dawHistory.pushState(`Remove ${fx.name} Plugin`)
-          })
-
-          list.appendChild(fxItem)
-        })
+          // Track plugins
+          if (track.effects) {
+            track.effects.forEach(fx => {
+              const fxItem = document.createElement('div')
+              fxItem.className = 'active-plugin-item'
+              fxItem.innerHTML = `
+                <div class="plugin-item-icon">${fx.icon || '🔌'}</div>
+                <div class="plugin-item-details">
+                  <div class="plugin-item-name">${fx.name}</div>
+                  <div class="plugin-item-track">${track.name || currentTrackId}</div>
+                </div>
+                <div class="plugin-item-controls">
+                  <div class="plugin-item-status"></div>
+                  <button class="plugin-item-remove-btn" title="Remove plugin">✕</button>
+                </div>
+              `
+              fxItem.addEventListener('dblclick', () => { showPluginWindow(fx) })
+              const removeBtn = fxItem.querySelector('.plugin-item-remove-btn')
+              removeBtn.addEventListener('click', (e) => {
+                e.stopPropagation()
+                track.removeEffect(fx.id)
+                if (openPluginWindows.has(fx.id)) {
+                  openPluginWindows.get(fx.id).remove()
+                  openPluginWindows.delete(fx.id)
+                }
+                window.updatePluginsFooter()
+                if (window.updateMixerInserts) window.updateMixerInserts()
+                dawHistory.pushState(`Remove ${fx.name} Plugin`)
+              })
+              list.appendChild(fxItem)
+            })
+          }
+        }
       }
     }
 

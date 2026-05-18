@@ -44,8 +44,8 @@ if (!gotTheLock) {
 function createWindow() {
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 720,
+    width: 1250,
+    height: 650,
     show: false,
     frame: false,
     autoHideMenuBar: true,
