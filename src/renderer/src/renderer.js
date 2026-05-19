@@ -29,44 +29,66 @@ function init() {
       })
     }
     
-    // ── Toast Notification System ──────────────────────────────────
-    function showToast(message) {
-      let toast = document.querySelector('.daw-toast')
-      if (!toast) {
-        toast = document.createElement('div')
-        toast.className = 'daw-toast'
-        document.body.appendChild(toast)
+    // ── Status Bar Notification & Hover System ──────────────────────
+    let statusTimeout = null;
+    function setStatusMessage(msg) {
+      const statusEl = document.getElementById('status-message');
+      if (statusEl) {
+        statusEl.textContent = msg;
       }
-      toast.textContent = message
-      toast.classList.add('show')
-      
-      if (toast._timeout) clearTimeout(toast._timeout)
-      toast._timeout = setTimeout(() => {
-        toast.classList.remove('show')
-      }, 2000)
     }
 
-    // ── Central HUD Notification System ─────────────────────────────
-    function showHudFeedback(icon, text) {
-      let hud = document.querySelector('.daw-hud')
-      if (!hud) {
-        hud = document.createElement('div')
-        hud.className = 'daw-hud'
-        hud.innerHTML = `
-          <div class="daw-hud-icon"></div>
-          <div class="daw-hud-text"></div>
-        `
-        document.body.appendChild(hud)
-      }
-      hud.querySelector('.daw-hud-icon').textContent = icon
-      hud.querySelector('.daw-hud-text').textContent = text
-      hud.classList.add('show')
-      
-      if (hud._timeout) clearTimeout(hud._timeout)
-      hud._timeout = setTimeout(() => {
-        hud.classList.remove('show')
-      }, 800)
+    function showToast(message) {
+      setStatusMessage(message);
+      if (statusTimeout) clearTimeout(statusTimeout);
+      statusTimeout = setTimeout(() => {
+        setStatusMessage('Ready');
+      }, 3000);
     }
+
+    function showHudFeedback(icon, text) {
+      showToast(text);
+    }
+
+    window.addEventListener('mouseover', (e) => {
+      let target = e.target.closest('[data-help], [title], button, select, input, .track-header, .mixer-channel, .plugin-knob, .clip, .pr-key');
+      if (!target) return;
+      
+      let message = '';
+      if (target.hasAttribute('data-help')) {
+        message = target.getAttribute('data-help');
+      } else if (target.hasAttribute('title') && target.getAttribute('title')) {
+        message = target.getAttribute('title');
+      } else {
+        // Fallback short descriptive info for common UI elements
+        if (target.tagName === 'BUTTON') {
+          message = `Click to ${target.textContent.trim().toLowerCase() || 'perform action'}`;
+        } else if (target.classList.contains('track-header')) {
+          const name = target.querySelector('.track-name')?.textContent || 'track';
+          message = `Track: ${name} (double-click to rename, drag to reorder)`;
+        } else if (target.classList.contains('mixer-channel')) {
+          const name = target.querySelector('.channel-name-vertical')?.textContent || 'channel';
+          message = `Mixer channel: ${name}`;
+        } else if (target.classList.contains('plugin-knob')) {
+          const wrapper = target.closest('.knob-wrapper');
+          const label = wrapper?.querySelector('.knob-label')?.textContent || 'parameter';
+          message = `Adjust parameter: ${label.toLowerCase()}`;
+        } else if (target.classList.contains('clip')) {
+          message = `Audio/pattern clip: ${target.textContent.trim()} (drag to move, resize edge to trim)`;
+        } else if (target.classList.contains('pr-key')) {
+          message = `Piano roll key: ${target.dataset.note}`;
+        }
+      }
+      
+      if (message) {
+        if (statusTimeout) clearTimeout(statusTimeout); // Suspend resets while hovering
+        setStatusMessage(message);
+      }
+    });
+
+    window.addEventListener('mouseout', (e) => {
+      setStatusMessage('Ready');
+    });
 
     // ── History Manager (Memento Pattern) ──────────────────────────
     let isRestoringHistory = false
@@ -226,13 +248,16 @@ function init() {
         const result = await window.api.installSoundPack();
         console.log('[Renderer] Install result:', result);
         if (result && result.success) {
-          const audioBase = await window.api.getAudioPath();
-          const newPackPath = audioBase.endsWith('/') || audioBase.endsWith('\\')
-            ? `${audioBase}${result.name}`
-            : `${audioBase}/${result.name}`;
-          
-          buildBrowserTree(browserContainer, result.name, newPackPath, true);
-          alert(`Successfully installed sound pack: ${result.name}`);
+          const libraryBase = await window.api.getLibraryPath();
+          if (libraryBase) {
+            const newPackPath = libraryBase.endsWith('/') || libraryBase.endsWith('\\')
+              ? `${libraryBase}${result.name}`
+              : `${libraryBase}/${result.name}`;
+            
+            const installedContainer = document.getElementById('installed-packs-container');
+            buildBrowserTree(installedContainer || browserContainer, result.name, newPackPath, true);
+            alert(`Successfully installed sound pack: ${result.name}`);
+          }
         } else if (result && !result.success) {
           alert(`Failed to install sound pack: ${result.error}`);
         }
@@ -259,34 +284,68 @@ function init() {
       if (lane) lane.classList.toggle('recording', active);
     }
 
-    function createRecordedClip(trackId, startTime, audioBuffer, blob) {
+    async function createRecordedClip(trackId, startTime, audioBuffer, blob) {
       const lane = document.querySelector(`.track-lane[data-track-id="${trackId}"]`);
       if (!lane) return;
+      
       const duration = audioBuffer.duration;
-      const clipEl = document.createElement('div');
-      clipEl.className = 'clip audio-clip recorded-clip';
-      clipEl.style.left = `${startTime * sequencer.pxPerSecond}px`;
-      clipEl.style.width = `${Math.max(20, duration * sequencer.pxPerSecond)}px`;
-      clipEl.textContent = '● REC';
-      clipEl.dataset.startTime = startTime;
-      clipEl.dataset.duration = duration;
-      const rh = document.createElement('div');
-      rh.className = 'resize-handle';
-      clipEl.appendChild(rh);
-      lane.appendChild(clipEl);
-      sequencer.addClip({
-        buffer: audioBuffer,
-        blob: blob, // Store raw recording Blob
-        startTime,
-        duration,
-        originalDuration: duration,
-        trackId,
-        scheduled: false,
-        uiElement: clipEl,
-        _fileName: 'Recording',
-        _filePath: null
-      });
-      showHudFeedback('●', 'Recording captured');
+      
+      let baseDir = '';
+      try {
+        if (currentProjectPath) {
+          const lastIndex = Math.max(currentProjectPath.lastIndexOf('/'), currentProjectPath.lastIndexOf('\\'));
+          baseDir = currentProjectPath.slice(0, lastIndex);
+        } else {
+          baseDir = await window.api.getDefaultProjectsPath();
+        }
+        
+        const recordedDir = `${baseDir}/Recorded`;
+        await window.api.mkdir(recordedDir);
+        
+        const timestamp = Date.now();
+        const fileName = `rec_${trackId.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.wav`;
+        const filePath = `${recordedDir}/${fileName}`;
+        
+        const arrayBuffer = await blob.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        const writeSuccess = await window.api.writeFile(filePath, uint8Array);
+        if (!writeSuccess) {
+          console.error('[Renderer] Failed to write recorded audio file to disk:', filePath);
+        }
+        
+        const relativePath = `Recorded/${fileName}`;
+        
+        const clipEl = document.createElement('div');
+        clipEl.className = 'clip audio-clip recorded-clip';
+        clipEl.style.left = `${startTime * sequencer.pxPerSecond}px`;
+        clipEl.style.width = `${Math.max(20, duration * sequencer.pxPerSecond)}px`;
+        clipEl.textContent = fileName;
+        clipEl.dataset.startTime = startTime;
+        clipEl.dataset.duration = duration;
+        
+        const rh = document.createElement('div');
+        rh.className = 'resize-handle';
+        clipEl.appendChild(rh);
+        lane.appendChild(clipEl);
+        
+        sequencer.addClip({
+          buffer: audioBuffer,
+          startTime,
+          duration,
+          originalDuration: duration,
+          trackId,
+          scheduled: false,
+          uiElement: clipEl,
+          _fileName: fileName,
+          _filePath: relativePath,
+          name: fileName
+        });
+        
+        dawHistory.pushState('Record Audio');
+        showHudFeedback('●', 'Recording captured');
+      } catch (err) {
+        console.error('[Renderer] Error saving recorded clip:', err);
+      }
     }
 
     async function startArmedRecordings() {
@@ -308,7 +367,7 @@ function init() {
         const result = await engine.stopRecording(trackId);
         showRecordingIndicator(trackId, false);
         if (result && result.audioBuffer) {
-          createRecordedClip(trackId, recordingStartsByTrack[trackId] || 0, result.audioBuffer, result.blob);
+          await createRecordedClip(trackId, recordingStartsByTrack[trackId] || 0, result.audioBuffer, result.blob);
         }
       }
     }
@@ -486,10 +545,103 @@ function init() {
        setTimeout(updateArrangerGrid, 100);
     });
 
+    function moveSelectedClips(timeDelta, laneDelta) {
+      if (selectedClips.size === 0) return;
+      
+      const allLanes = Array.from(document.querySelectorAll('.track-lane'));
+      const clipMoves = [];
+      
+      selectedClips.forEach(clipEl => {
+        const isPattern = clipEl.classList.contains('pattern-clip');
+        const seqClip = isPattern 
+          ? sequencer.patternClips.find(c => c.uiElement === clipEl)
+          : sequencer.clips.find(c => c.uiElement === clipEl);
+          
+        if (!seqClip) return;
+        
+        const currentStartTime = seqClip.startTime;
+        let newStartTime = currentStartTime + timeDelta;
+        if (newStartTime < 0) newStartTime = 0;
+        newStartTime = sequencer.snapTimeToGrid(newStartTime);
+        
+        const currentLane = clipEl.closest('.track-lane');
+        const currentLaneIndex = allLanes.indexOf(currentLane);
+        let newLaneIndex = currentLaneIndex + laneDelta;
+        if (newLaneIndex < 0) newLaneIndex = 0;
+        if (newLaneIndex >= allLanes.length) newLaneIndex = allLanes.length - 1;
+        
+        clipMoves.push({
+          clipEl,
+          seqClip,
+          isPattern,
+          newStartTime,
+          newLane: allLanes[newLaneIndex]
+        });
+      });
+      
+      let movedAny = false;
+      clipMoves.forEach(move => {
+        const oldStartTime = move.seqClip.startTime;
+        const oldLane = move.clipEl.parentElement;
+        const oldTrackId = move.seqClip.trackId;
+        const newTrackId = move.newLane.dataset.trackId;
+        
+        if (oldStartTime !== move.newStartTime || oldLane !== move.newLane) {
+          movedAny = true;
+          
+          move.seqClip.startTime = move.newStartTime;
+          move.seqClip.scheduled = false;
+          move.clipEl.style.left = `${move.newStartTime * sequencer.pxPerSecond}px`;
+          move.clipEl.dataset.startTime = move.newStartTime;
+          
+          if (oldLane !== move.newLane && newTrackId) {
+            move.newLane.appendChild(move.clipEl);
+            move.seqClip.trackId = newTrackId;
+            
+            const map = trackUIMap[newTrackId];
+            if (map && map.headers[0]) {
+              const color = map.headers[0].laneEl.style.getPropertyValue('--track-color');
+              if (color) move.clipEl.style.background = color;
+            }
+            
+            if (move.isPattern) {
+              move.clipEl.dataset.patternTrackId = newTrackId;
+              syncPatternClip(oldTrackId);
+              syncPatternClip(newTrackId);
+            }
+          } else if (move.isPattern) {
+            syncPatternClip(oldTrackId);
+          }
+        }
+      });
+      
+      if (movedAny) {
+        dawHistory.pushState('Move Clip Keyboard');
+      }
+    }
+
     // Global Keybindings
     window.addEventListener('keydown', (e) => {
       // Don't trigger if user is typing in an input or contenteditable
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+        return;
+      }
+
+      // Keyboard selection movement (Arranger Clips)
+      if (selectedNotes.size === 0 && selectedClips.size > 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const beatsPerSecond = sequencer.bpm / 60;
+        const snapDuration = sequencer.gridSnapInBeats > 0 ? (sequencer.gridSnapInBeats / beatsPerSecond) : (0.25 / beatsPerSecond);
+        
+        let timeDelta = 0;
+        let laneDelta = 0;
+        
+        if (e.key === 'ArrowLeft') timeDelta = -snapDuration;
+        if (e.key === 'ArrowRight') timeDelta = snapDuration;
+        if (e.key === 'ArrowUp') laneDelta = -1;
+        if (e.key === 'ArrowDown') laneDelta = 1;
+        
+        moveSelectedClips(timeDelta, laneDelta);
         return;
       }
 
@@ -840,22 +992,28 @@ function init() {
         const audioBase = await window.api.getAudioPath()
         const entries = await window.api.readDirectory(audioBase)
 
-        if (!entries || entries.length === 0) {
-          console.warn('[Browser] Audio directory is empty:', audioBase)
-          return
-        }
-
-        // Load every subdirectory as a non-removable browser tree
-        const folders = entries.filter(e => e.type === 'directory')
-        if (folders.length === 0) {
-          console.warn('[Browser] No folders found in audio directory:', audioBase)
-          return
-        }
-
-        for (const folder of folders) {
-          buildBrowserTree(browserContainer, folder.name, folder.path, false)
+        if (entries && entries.length > 0) {
+          const folders = entries.filter(e => e.type === 'directory')
+          const starterContainer = document.getElementById('starter-packs-container')
+          for (const folder of folders) {
+            buildBrowserTree(starterContainer || browserContainer, folder.name, folder.path, false)
+          }
         }
       } catch (e) { console.warn('[Browser] Could not auto-load audio folders:', e) }
+
+      try {
+        const libraryBase = await window.api.getLibraryPath()
+        if (libraryBase) {
+          const entries = await window.api.readDirectory(libraryBase)
+          if (entries && entries.length > 0) {
+            const folders = entries.filter(e => e.type === 'directory')
+            const installedContainer = document.getElementById('installed-packs-container')
+            for (const folder of folders) {
+              buildBrowserTree(installedContainer || browserContainer, folder.name, folder.path, true)
+            }
+          }
+        }
+      } catch (e) { console.warn('[Browser] Could not auto-load library folders:', e) }
     }, 500)
 
     const gridSnapSelect = document.getElementById('grid-snap-select')
@@ -1098,7 +1256,8 @@ function init() {
                 scheduled: false,
                 uiElement: clip,
                 _filePath: fileInfo.path,
-                _fileName: fileInfo.name
+                _fileName: fileInfo.name,
+                name: fileInfo.name
               };
               sequencer.addClip(seqClip)
               dawHistory.pushState('Add Clip')
@@ -1108,6 +1267,170 @@ function init() {
           console.error('Error handling drop:', err)
         }
       })
+
+      // Track Reordering Drag and Drop Setup
+      let trackDragState = null;
+      const trackHeadersContainer = document.getElementById('track-headers-container');
+      
+      function updateTrackNumbers() {
+        const headers = document.querySelectorAll('#track-headers-container .track-header');
+        headers.forEach((header, index) => {
+          const numEl = header.querySelector('.track-number');
+          if (numEl) numEl.textContent = index + 1;
+        });
+      }
+
+      trackHeadersContainer.addEventListener('mousedown', (e) => {
+        // Don't drag if we click a button, input, or contenteditable name
+        if (
+          e.target.closest('button') || 
+          e.target.closest('input') || 
+          e.target.closest('.track-name') ||
+          e.target.closest('select') ||
+          e.target.isContentEditable
+        ) {
+          return;
+        }
+
+        const header = e.target.closest('.track-header');
+        if (!header) return;
+
+        let trackId = null;
+        for (const [tid, ui] of Object.entries(trackUIMap)) {
+          if (ui.headers[0]?.headerEl === header) {
+            trackId = tid;
+            break;
+          }
+        }
+
+        if (!trackId) return;
+
+        e.preventDefault();
+
+        trackDragState = {
+          trackId,
+          headerEl: header,
+          startY: e.clientY
+        };
+
+        header.classList.add('dragging-track');
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!trackDragState) return;
+
+        const headers = Array.from(trackHeadersContainer.querySelectorAll('.track-header'));
+        const draggedIndex = headers.indexOf(trackDragState.headerEl);
+        
+        let swapIndex = -1;
+        
+        const draggedRect = trackDragState.headerEl.getBoundingClientRect();
+        const draggedCenterY = draggedRect.top + draggedRect.height / 2;
+
+        for (let i = 0; i < headers.length; i++) {
+          if (i === draggedIndex) continue;
+          const targetRect = headers[i].getBoundingClientRect();
+          const targetCenterY = targetRect.top + targetRect.height / 2;
+
+          if (draggedIndex < i && draggedCenterY > targetCenterY) {
+            swapIndex = i;
+          } else if (draggedIndex > i && draggedCenterY < targetCenterY) {
+            swapIndex = i;
+          }
+        }
+
+        if (swapIndex !== -1) {
+          const targetHeader = headers[swapIndex];
+          
+          const draggedTrackId = trackDragState.trackId;
+          let swapTrackId = null;
+          for (const [tid, ui] of Object.entries(trackUIMap)) {
+            if (ui.headers[0]?.headerEl === targetHeader) {
+              swapTrackId = tid;
+              break;
+            }
+          }
+
+          const draggedUI = trackUIMap[draggedTrackId];
+          const swapUI = trackUIMap[swapTrackId];
+
+          const draggedLabel = draggedUI?.autoLanes[0]?.labelEl;
+          const swapLabel = swapUI?.autoLanes[0]?.labelEl;
+
+          const draggedLane = draggedUI?.headers[0]?.laneEl;
+          const swapLane = swapUI?.headers[0]?.laneEl;
+
+          const draggedAutoLane = draggedUI?.autoLanes[0]?.laneEl;
+          const swapAutoLane = swapUI?.autoLanes[0]?.laneEl;
+
+          if (draggedIndex < swapIndex) {
+            const insertBeforeTarget = swapLabel ? swapLabel.nextSibling : targetHeader.nextSibling;
+            trackHeadersContainer.insertBefore(trackDragState.headerEl, insertBeforeTarget);
+            if (draggedLabel) {
+              trackHeadersContainer.insertBefore(draggedLabel, trackDragState.headerEl.nextSibling);
+            }
+
+            const laneContainer = document.getElementById('track-lanes-container');
+            if (laneContainer && draggedLane && swapLane) {
+              const insertBeforeLane = swapAutoLane ? swapAutoLane.nextSibling : swapLane.nextSibling;
+              laneContainer.insertBefore(draggedLane, insertBeforeLane);
+              if (draggedAutoLane) {
+                laneContainer.insertBefore(draggedAutoLane, draggedLane.nextSibling);
+              }
+            }
+          } else {
+            trackHeadersContainer.insertBefore(trackDragState.headerEl, targetHeader);
+            if (draggedLabel) {
+              trackHeadersContainer.insertBefore(draggedLabel, trackDragState.headerEl.nextSibling);
+            }
+
+            const laneContainer = document.getElementById('track-lanes-container');
+            if (laneContainer && draggedLane && swapLane) {
+              laneContainer.insertBefore(draggedLane, swapLane);
+              if (draggedAutoLane) {
+                laneContainer.insertBefore(draggedAutoLane, draggedLane.nextSibling);
+              }
+            }
+          }
+
+          // Same for mixer channels!
+          const mixerContainer = document.getElementById('mixer-channels-container');
+          if (mixerContainer && draggedTrackId && swapTrackId) {
+            const draggedChannel = mixerContainer.querySelector(`.mixer-channel[data-track-id="${draggedTrackId}"]`);
+            const swapChannel = mixerContainer.querySelector(`.mixer-channel[data-track-id="${swapTrackId}"]`);
+            if (draggedChannel && swapChannel) {
+              if (draggedIndex < swapIndex) {
+                mixerContainer.insertBefore(draggedChannel, swapChannel.nextSibling);
+              } else {
+                mixerContainer.insertBefore(draggedChannel, swapChannel);
+              }
+            }
+          }
+
+          // Same for sequencer rows!
+          const seqContainer = document.getElementById('seq-rows-container');
+          if (seqContainer && swapUI && draggedUI) {
+            const draggedSeqRow = draggedUI.seqRows[0];
+            const swapSeqRow = swapUI.seqRows[0];
+            if (draggedSeqRow && swapSeqRow) {
+              if (draggedIndex < swapIndex) {
+                seqContainer.insertBefore(draggedSeqRow, swapSeqRow.nextSibling);
+              } else {
+                seqContainer.insertBefore(draggedSeqRow, swapSeqRow);
+              }
+            }
+          }
+
+          updateTrackNumbers();
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (!trackDragState) return;
+        trackDragState.headerEl.classList.remove('dragging-track');
+        trackDragState = null;
+        dawHistory.pushState('Reorder Track');
+      });
 
       // Clip Dragging & Resizing
       let clipDragState = null;
@@ -1308,9 +1631,31 @@ function init() {
               const newLeft = parseFloat(item.el.style.left) || 0;
               const newStartTime = newLeft / sequencer.pxPerSecond;
               item.el.dataset.startTime = newStartTime;
+              
+              const newLane = item.el.parentElement;
+              const newTrackId = newLane?.dataset.trackId;
+
               if (item.seqClip) {
                 item.seqClip.startTime = newStartTime;
                 item.seqClip.scheduled = false;
+                
+                if (newTrackId && item.seqClip.trackId !== newTrackId) {
+                  const oldTrackId = item.seqClip.trackId;
+                  item.seqClip.trackId = newTrackId;
+                  
+                  // Update styling color
+                  const map = trackUIMap[newTrackId];
+                  if (map && map.headers[0]) {
+                    const color = map.headers[0].laneEl.style.getPropertyValue('--track-color');
+                    if (color) item.el.style.background = color;
+                  }
+                  
+                  if (item.el.classList.contains('pattern-clip')) {
+                    item.el.dataset.patternTrackId = newTrackId;
+                    syncPatternClip(oldTrackId);
+                    syncPatternClip(newTrackId);
+                  }
+                }
               }
             });
             dawHistory.pushState('Move Clip');
@@ -1328,28 +1673,122 @@ function init() {
         }
       });
 
-      // Right-click to delete a clip
+      // Right-click custom context menu to Rename or Delete a clip
       arrangementView.addEventListener('contextmenu', (e) => {
         const clip = e.target.closest('.clip')
         if (clip) {
           e.preventDefault();
+          e.stopPropagation();
+
+          // Close any existing menus
+          document.querySelectorAll('.track-context-menu').forEach(m => m.remove());
+
           const isPattern = clip.classList.contains('pattern-clip')
           const trackId = clip.closest('.track-lane')?.dataset.trackId
+          
+          let seqClip;
           if (isPattern) {
-            const seqClip = sequencer.patternClips.find(c => c.uiElement === clip)
-            if (seqClip) sequencer.removePatternClip(seqClip)
+            seqClip = sequencer.patternClips.find(c => c.uiElement === clip);
           } else {
-            const seqClip = sequencer.clips.find(c => c.uiElement === clip)
-            if (seqClip) sequencer.removeClip(seqClip)
+            seqClip = sequencer.clips.find(c => c.uiElement === clip);
           }
-          clip.remove()
-          selectedClips.delete(clip);
-          if (isPattern && trackId) {
-            syncPatternClip(trackId);
-          }
-          dawHistory.pushState('Delete Clip');
+
+          if (!seqClip) return;
+
+          const menu = document.createElement('div');
+          menu.className = 'track-context-menu';
+          menu.style.left = `${e.clientX}px`;
+          menu.style.top = `${e.clientY}px`;
+
+          menu.innerHTML = `
+            <div class="track-context-item" id="clip-ctx-rename">Rename Clip...</div>
+            <div class="track-context-item danger" id="clip-ctx-delete">Delete Clip</div>
+          `;
+
+          document.body.appendChild(menu);
+
+          // Close menu on click anywhere
+          const closeMenu = () => {
+            menu.remove();
+            document.removeEventListener('click', closeMenu);
+          };
+          setTimeout(() => {
+            document.addEventListener('click', closeMenu);
+          }, 0);
+
+          menu.querySelector('#clip-ctx-rename').addEventListener('click', () => {
+            const currentName = isPattern ? (seqClip.name || 'Pattern') : (seqClip.name || seqClip._fileName || 'Audio Clip');
+            const newName = prompt('Rename Clip:', currentName);
+            if (newName !== null) {
+              const trimmed = newName.trim();
+              if (trimmed) {
+                seqClip.name = trimmed;
+                if (isPattern) {
+                  const beatsPerSecond = sequencer.bpm / 60;
+                  const secondsPerStep = (1 / beatsPerSecond) / 4;
+                  const trackNotes = sequencer.patterns[trackId] || [];
+                  updatePatternClipMiniNotes(clip, trackId, trackNotes, secondsPerStep);
+                } else {
+                  const handle = clip.querySelector('.resize-handle');
+                  clip.textContent = trimmed;
+                  if (handle) clip.appendChild(handle);
+                }
+                dawHistory.pushState('Rename Clip');
+              }
+            }
+          });
+
+          menu.querySelector('#clip-ctx-delete').addEventListener('click', () => {
+            if (isPattern) {
+              sequencer.removePatternClip(seqClip);
+            } else {
+              sequencer.removeClip(seqClip);
+            }
+            clip.remove();
+            selectedClips.delete(clip);
+            if (isPattern && trackId) {
+              syncPatternClip(trackId);
+            }
+            dawHistory.pushState('Delete Clip');
+          });
         }
-      })
+      });
+
+      // Double-click to open piano roll (pattern clips) or rename (audio clips)
+      arrangementView.addEventListener('dblclick', (e) => {
+        const clip = e.target.closest('.clip');
+        if (!clip) return;
+        e.stopPropagation();
+
+        const isPattern = clip.classList.contains('pattern-clip');
+        if (isPattern) {
+          const trackId = clip.closest('.track-lane')?.dataset.trackId;
+          if (trackId) {
+            const map = trackUIMap[trackId];
+            if (map && map.headers[0] && map.headers[0].headerEl) {
+              map.headers[0].headerEl.dispatchEvent(new MouseEvent('mousedown'));
+            }
+            switchToView('piano-roll-view');
+          }
+        } else {
+          // Audio clip: rename directly on double click!
+          const seqClip = sequencer.clips.find(c => c.uiElement === clip);
+          if (seqClip) {
+            const currentName = seqClip.name || seqClip._fileName || 'Audio Clip';
+            const newName = prompt('Rename Audio Clip:', currentName);
+            if (newName !== null) {
+              const trimmed = newName.trim();
+              if (trimmed) {
+                seqClip.name = trimmed;
+                const handle = clip.querySelector('.resize-handle');
+                clip.textContent = trimmed;
+                if (handle) clip.appendChild(handle);
+                dawHistory.pushState('Rename Clip');
+              }
+            }
+          }
+        }
+      });
     }
 
     // Dynamic Tracks Engine Integration
@@ -1361,6 +1800,28 @@ function init() {
     // UI mapping for Syncing Track Headers and Mixer
     const trackUIMap = {}
     
+    function selectTrackById(trackId) {
+      if (!trackUIMap[trackId]) return
+      currentTrackId = trackId
+      document.querySelectorAll('.track-header, .mixer-channel, .seq-row').forEach(el => el.classList.remove('selected'))
+      
+      const headerObj = trackUIMap[trackId].headers[0]
+      const mixerObj = trackUIMap[trackId].mixers[0]
+      const seqRowEl = trackUIMap[trackId].seqRows[0]
+      
+      if (headerObj && headerObj.headerEl) headerObj.headerEl.classList.add('selected')
+      if (mixerObj && mixerObj.channelEl) mixerObj.channelEl.classList.add('selected')
+      if (seqRowEl) seqRowEl.classList.add('selected')
+      
+      // Sync Piano Roll
+      const prSelect = document.getElementById('pr-track-select')
+      if (prSelect) {
+        prSelect.value = trackId
+        prSelect.dispatchEvent(new Event('change'))
+      }
+      if (window.updatePluginsFooter) window.updatePluginsFooter()
+    }
+
     // Dynamic Track UI Generation
     function createTrackUI(trackId, trackName, defaultColor, refTrackId = null, position = null) {
       // 1. Initialize track in engine
@@ -1729,19 +2190,7 @@ function init() {
 
       // Click to select track
       const selectTrack = () => {
-        currentTrackId = trackId
-        document.querySelectorAll('.track-header, .mixer-channel, .seq-row').forEach(el => el.classList.remove('selected'))
-        header.classList.add('selected')
-        channel.classList.add('selected')
-        seqRow.classList.add('selected')
-        
-        // Sync Piano Roll
-        const prSelect = document.getElementById('pr-track-select')
-        if (prSelect) {
-          prSelect.value = trackId
-          prSelect.dispatchEvent(new Event('change'))
-        }
-        if (window.updatePluginsFooter) window.updatePluginsFooter()
+        selectTrackById(trackId)
       }
       header.addEventListener('mousedown', selectTrack)
       channel.addEventListener('mousedown', selectTrack)
@@ -1832,6 +2281,8 @@ function init() {
           <div class="track-context-item" id="ctx-color">Change Color</div>
           <div class="track-context-item" id="ctx-properties">Sound Properties</div>
           <div class="track-context-item" id="ctx-rename">Rename Track</div>
+          <div class="track-context-item" id="ctx-move-up">Move Up</div>
+          <div class="track-context-item" id="ctx-move-down">Move Down</div>
           <div class="track-context-item" id="ctx-insert-before">Insert Track Before</div>
           <div class="track-context-item" id="ctx-insert-after">Insert Track After</div>
           <div class="track-context-item" id="ctx-duplicate">Duplicate Track</div>
@@ -1889,6 +2340,16 @@ function init() {
             sel.removeAllRanges();
             sel.addRange(range);
           }, 50);
+        });
+
+        menu.querySelector('#ctx-move-up').addEventListener('click', () => {
+          menu.remove();
+          shiftTrackDirection(trackId, 'up');
+        });
+
+        menu.querySelector('#ctx-move-down').addEventListener('click', () => {
+          menu.remove();
+          shiftTrackDirection(trackId, 'down');
         });
 
         menu.querySelector('#ctx-insert-before').addEventListener('click', () => {
@@ -2230,6 +2691,106 @@ function init() {
       reindexTrackNumbers();
     }
 
+    function shiftTrackDirection(trackId, direction) {
+      const headerContainer = document.getElementById('track-headers-container');
+      const headers = Array.from(headerContainer.querySelectorAll('.track-header'));
+      
+      const ui = trackUIMap[trackId];
+      if (!ui || !ui.headers[0]) return;
+      const headerEl = ui.headers[0].headerEl;
+      const currentIndex = headers.indexOf(headerEl);
+      
+      let targetIndex = -1;
+      if (direction === 'up' && currentIndex > 0) {
+        targetIndex = currentIndex - 1;
+      } else if (direction === 'down' && currentIndex < headers.length - 1) {
+        targetIndex = currentIndex + 1;
+      }
+      
+      if (targetIndex === -1) return;
+      
+      const targetHeader = headers[targetIndex];
+      const draggedLabel = ui.autoLanes[0]?.labelEl;
+      const draggedLane = ui.headers[0]?.laneEl;
+      const draggedAutoLane = ui.autoLanes[0]?.laneEl;
+      
+      // Find swap track ID
+      let swapTrackId = null;
+      for (const [tid, tUi] of Object.entries(trackUIMap)) {
+        if (tUi.headers[0]?.headerEl === targetHeader) {
+          swapTrackId = tid;
+          break;
+        }
+      }
+      
+      if (!swapTrackId) return;
+      const swapUI = trackUIMap[swapTrackId];
+      const swapLabel = swapUI?.autoLanes[0]?.labelEl;
+      const swapLane = swapUI?.headers[0]?.laneEl;
+      const swapAutoLane = swapUI?.autoLanes[0]?.laneEl;
+      
+      if (direction === 'down') {
+        const insertBeforeTarget = swapLabel ? swapLabel.nextSibling : targetHeader.nextSibling;
+        headerContainer.insertBefore(headerEl, insertBeforeTarget);
+        if (draggedLabel) {
+          headerContainer.insertBefore(draggedLabel, headerEl.nextSibling);
+        }
+
+        const laneContainer = document.getElementById('track-lanes-container');
+        if (laneContainer && draggedLane && swapLane) {
+          const insertBeforeLane = swapAutoLane ? swapAutoLane.nextSibling : swapLane.nextSibling;
+          laneContainer.insertBefore(draggedLane, insertBeforeLane);
+          if (draggedAutoLane) {
+            laneContainer.insertBefore(draggedAutoLane, draggedLane.nextSibling);
+          }
+        }
+      } else {
+        headerContainer.insertBefore(headerEl, targetHeader);
+        if (draggedLabel) {
+          headerContainer.insertBefore(draggedLabel, headerEl.nextSibling);
+        }
+
+        const laneContainer = document.getElementById('track-lanes-container');
+        if (laneContainer && draggedLane && swapLane) {
+          laneContainer.insertBefore(draggedLane, swapLane);
+          if (draggedAutoLane) {
+            laneContainer.insertBefore(draggedAutoLane, draggedLane.nextSibling);
+          }
+        }
+      }
+      
+      // Same for mixer channels!
+      const mixerContainer = document.getElementById('mixer-channels-container');
+      if (mixerContainer) {
+        const draggedChannel = mixerContainer.querySelector(`.mixer-channel[data-track-id="${trackId}"]`);
+        const swapChannel = mixerContainer.querySelector(`.mixer-channel[data-track-id="${swapTrackId}"]`);
+        if (draggedChannel && swapChannel) {
+          if (direction === 'down') {
+            mixerContainer.insertBefore(draggedChannel, swapChannel.nextSibling);
+          } else {
+            mixerContainer.insertBefore(draggedChannel, swapChannel);
+          }
+        }
+      }
+
+      // Same for sequencer rows!
+      const seqContainer = document.getElementById('seq-rows-container');
+      if (seqContainer && swapUI && ui) {
+        const draggedSeqRow = ui.seqRows[0];
+        const swapSeqRow = swapUI.seqRows[0];
+        if (draggedSeqRow && swapSeqRow) {
+          if (direction === 'down') {
+            seqContainer.insertBefore(draggedSeqRow, swapSeqRow.nextSibling);
+          } else {
+            seqContainer.insertBefore(draggedSeqRow, swapSeqRow);
+          }
+        }
+      }
+
+      reindexTrackNumbers();
+      dawHistory.pushState(`Move Track ${direction === 'up' ? 'Up' : 'Down'}`);
+    }
+
     function reindexTrackNumbers() {
       const headers = document.querySelectorAll('#track-headers-container .track-header');
       headers.forEach((h, index) => {
@@ -2359,7 +2920,7 @@ function init() {
         // A. Pattern clips
         const originalPatternClips = sequencer.patternClips.filter(pc => pc.trackId === trackId);
         originalPatternClips.forEach(pc => {
-          createPatternClipUI(newTrackId, pc.startTime, pc.duration, newLane);
+          createPatternClipUI(newTrackId, pc.startTime, pc.duration, newLane, pc.name);
         });
 
         // B. Audio clips
@@ -2369,10 +2930,8 @@ function init() {
           clipEl.className = 'clip audio-clip';
           if (c.uiElement && c.uiElement.classList.contains('recorded-clip')) {
             clipEl.className = 'clip audio-clip recorded-clip';
-            clipEl.textContent = '● REC';
-          } else {
-            clipEl.textContent = c._fileName || 'Audio Clip';
           }
+          clipEl.textContent = c.name || c._fileName || 'Audio Clip';
           clipEl.style.left = `${c.startTime * sequencer.pxPerSecond}px`;
           clipEl.style.width = `${Math.max(20, c.duration * sequencer.pxPerSecond)}px`;
           clipEl.dataset.startTime = c.startTime;
@@ -2393,7 +2952,8 @@ function init() {
             scheduled: false,
             uiElement: clipEl,
             _filePath: c._filePath,
-            _fileName: c._fileName
+            _fileName: c._fileName,
+            name: c.name || ''
           });
         });
       }
@@ -2912,7 +3472,7 @@ function init() {
       createPatternClipUI(trackId, 0, finalDuration, lane);
     }
 
-    function createPatternClipUI(trackId, startTime, duration, lane) {
+    function createPatternClipUI(trackId, startTime, duration, lane, name = 'Pattern') {
       const pClip = document.createElement('div');
       pClip.className = 'clip pattern-clip';
       pClip.style.left = `${startTime * sequencer.pxPerSecond}px`;
@@ -2931,20 +3491,11 @@ function init() {
       
       lane.appendChild(pClip);
       
-      const seqPc = { trackId, startTime, duration, uiElement: pClip };
+      const seqPc = { trackId, startTime, duration, uiElement: pClip, name };
       sequencer.addPatternClip(seqPc);
       pClip.dataset.startTime = startTime;
       pClip.dataset.duration = duration;
       pClip.dataset.patternTrackId = trackId;
-      
-      pClip.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        const map = trackUIMap[trackId];
-        if (map && map.headers[0] && map.headers[0].headerEl) {
-          map.headers[0].headerEl.dispatchEvent(new MouseEvent('mousedown'));
-        }
-        switchToView('piano-roll-view');
-      });
 
       const trackNotes = sequencer.patterns[trackId] || [];
       const beatsPerSecond = sequencer.bpm / 60;
@@ -2955,7 +3506,12 @@ function init() {
 
     function updatePatternClipMiniNotes(pClip, trackId, trackNotes, secondsPerStep) {
       const handle = pClip.querySelector('.resize-handle');
-      pClip.innerHTML = `<span style="font-size:9px; padding-left:4px; opacity:0.9; position:absolute; top:2px; color:rgba(0,0,0,0.9); pointer-events:none; font-weight:bold; z-index:1;">Pattern</span>`;
+      
+      // Look up clip custom name if it exists
+      const seqPc = sequencer.patternClips.find(pc => pc.uiElement === pClip);
+      const name = seqPc?.name || 'Pattern';
+      
+      pClip.innerHTML = `<span style="font-size:9px; padding-left:4px; opacity:0.9; position:absolute; top:2px; color:rgba(0,0,0,0.9); pointer-events:none; font-weight:bold; z-index:1;">${name}</span>`;
       if (handle) pClip.appendChild(handle);
       else {
         const h2 = document.createElement('div');
@@ -2963,6 +3519,13 @@ function init() {
         pClip.appendChild(h2);
       }
       
+      if (trackNotes.length === 0) return;
+      
+      const midis = trackNotes.map(n => parseNoteToMidi(n.note));
+      const minMidi = Math.min(...midis);
+      const maxMidi = Math.max(...midis);
+      const midiRange = maxMidi - minMidi;
+
       trackNotes.forEach(n => {
         const mini = document.createElement('div');
         mini.className = 'pattern-mini-note';
@@ -2970,13 +3533,19 @@ function init() {
         const startX = (n.step * secondsPerStep) * sequencer.pxPerSecond;
         const width = (n.durationSteps * secondsPerStep) * sequencer.pxPerSecond;
         
-        // Vertical positioning: draw notes at the bottom, stacked slightly by pitch
         const midi = parseNoteToMidi(n.note);
-        const pitchOffset = (midi % 12) * 1.5; // Small vertical spread
+        let yPct = 0.5;
+        if (midiRange > 0) {
+          yPct = (midi - minMidi) / midiRange; // 0 is lowest note, 1 is highest note
+        }
+        
+        // Map to bottom range (4px to 28px) so it doesn't overlap the text too much
+        const bottomPx = 4 + yPct * 24;
+
         mini.style.left = `${startX}px`;
         mini.style.width = `${Math.max(3, width - 1)}px`;
         mini.style.height = '4px';
-        mini.style.bottom = `${2 + pitchOffset}px`; // Aligned at the bottom
+        mini.style.bottom = `${bottomPx}px`; // Aligned to reflect exact vertical arrangement
         mini.style.top = 'auto';
         mini.style.pointerEvents = 'none';
         pClip.appendChild(mini);
@@ -3293,10 +3862,7 @@ function init() {
         const percent = range === 0 ? 0 : (val - min) / range;
         const angle = -135 + percent * 270;
         
-        const indicator = knob.querySelector('.knob-indicator');
-        if (indicator) {
-          indicator.style.transform = `translateX(-50%) rotate(${angle}deg)`;
-        }
+        knob.style.transform = `rotate(${angle}deg)`;
 
         // Format label
         const label = document.getElementById(`ns-${id}-val`);
@@ -3368,8 +3934,38 @@ function init() {
       // Hook up window functions so trigger click can initialize
       window.updateNSKnobUI = updateNSKnobUI;
       
+      // Note Settings Modal Dragging
+      const nsModal = document.getElementById('note-settings-modal');
+      const nsHeader = document.getElementById('note-settings-header');
+      if (nsModal && nsHeader) {
+        let isDraggingNS = false, startXNS, startYNS, initialXNS, initialYNS;
+        nsHeader.addEventListener('mousedown', (e) => {
+          if (e.target.closest('.plugin-close')) return;
+          isDraggingNS = true;
+          startXNS = e.clientX;
+          startYNS = e.clientY;
+          const rect = nsModal.getBoundingClientRect();
+          initialXNS = rect.left;
+          initialYNS = rect.top;
+          
+          nsModal.style.transform = 'none';
+          nsModal.style.left = `${initialXNS}px`;
+          nsModal.style.top = `${initialYNS}px`;
+          
+          e.preventDefault();
+        });
+        window.addEventListener('mousemove', (e) => {
+          if (!isDraggingNS) return;
+          const dx = e.clientX - startXNS;
+          const dy = e.clientY - startYNS;
+          nsModal.style.left = `${initialXNS + dx}px`;
+          nsModal.style.top = `${initialYNS + dy}px`;
+        });
+        window.addEventListener('mouseup', () => { isDraggingNS = false; });
+      }
+
       document.getElementById('note-settings-close-btn')?.addEventListener('click', () => {
-        document.getElementById('note-settings-modal').style.display = 'none';
+        if (nsModal) nsModal.style.display = 'none';
         
         const selectedNoteForModal = window.__selectedNoteForModal;
         if (selectedNoteForModal) {
@@ -3822,9 +4418,11 @@ function init() {
     // ── Save / Load ────────────────────────────────────────────────
     function serializeProject() {
       const tracksData = []
-      Object.keys(trackUIMap).forEach(trackId => {
-        const map = trackUIMap[trackId]
-        const h = map.headers[0]
+      const headers = Array.from(document.querySelectorAll('#track-headers-container .track-header'));
+      headers.forEach(h => {
+        const trackId = Object.keys(trackUIMap).find(tid => trackUIMap[tid].headers[0]?.headerEl === h);
+        if (!trackId) return;
+        const map = trackUIMap[trackId];
         const engineTrack = engine.getTrack(trackId)
         
         const effectsData = []
@@ -3842,8 +4440,8 @@ function init() {
 
         tracksData.push({
           id: trackId,
-          name: h?.nameEl?.textContent || trackId,
-          color: h?.colorPicker?.value || '#00e5ff',
+          name: map?.headers[0]?.nameEl?.textContent || trackId,
+          color: map?.headers[0]?.colorPicker?.value || '#00e5ff',
           instrumentPath: engineTrack?._instrumentPath || null,
           instrumentRootMidi: engineTrack?.instrumentRootMidi ?? 60,
           volume: engineTrack?.baseVolume ?? 0.8,
@@ -3862,13 +4460,15 @@ function init() {
         duration: c.duration,
         originalDuration: c.originalDuration || c.duration,
         filePath: c._filePath || null,
-        fileName: c._fileName || ''
+        fileName: c._fileName || '',
+        name: c.name || ''
       }))
 
       const patternClipsData = sequencer.patternClips.map(pc => ({
         trackId: pc.trackId,
         startTime: pc.startTime,
-        duration: pc.duration
+        duration: pc.duration,
+        name: pc.name || 'Pattern'
       }))
 
       const patternsData = {}
@@ -3982,7 +4582,7 @@ function init() {
           document.title = `Bounce — ${folderName}`
           const titleEl = document.getElementById('project-title')
           if (titleEl) titleEl.textContent = folderName
-          showToast(`💾 Saved Project: ${folderName}`)
+          showToast(`Saved Project: ${folderName}`)
         } else {
           showToast('Save failed.')
         }
@@ -4047,7 +4647,7 @@ function init() {
             });
           }
         });
-        showHudFeedback("📋", `Copied ${selectedNotes.size} Notes`);
+        // showHudFeedback("📋", `Copied ${selectedNotes.size} Notes`);
       } else if (selectedClips.size > 0) {
         let minStart = Infinity;
         selectedClips.forEach(clipEl => {
@@ -4068,7 +4668,8 @@ function init() {
               relStart: start - minStart,
               duration,
               originalDuration: seqClip ? (seqClip.originalDuration || duration) : duration,
-              isPattern: true
+              isPattern: true,
+              name: seqClip ? seqClip.name : 'Pattern'
             });
           } else {
             const seqClip = sequencer.clips.find(c => c.uiElement === clipEl);
@@ -4081,20 +4682,21 @@ function init() {
                 isPattern: false,
                 filePath: seqClip._filePath,
                 fileName: seqClip._fileName,
-                buffer: seqClip.buffer
+                buffer: seqClip.buffer,
+                name: seqClip.name || ''
               });
             }
           }
         });
-        showHudFeedback("📋", `Copied ${selectedClips.size} Clips`);
+        // showHudFeedback("📋", `Copied ${selectedClips.size} Clips`);
       } else {
-        showHudFeedback("📋", "No selection to copy");
+        // showHudFeedback("📋", "No selection to copy");
       }
     }
 
     function doCut() {
       if (selectedNotes.size === 0 && selectedClips.size === 0) {
-        showHudFeedback("✂️", "No selection to cut");
+        // showHudFeedback("✂️", "No selection to cut");
         return;
       }
       
@@ -4119,7 +4721,7 @@ function init() {
         selectedNotes.clear();
         syncPatternClip(currentTrackId);
         dawHistory.pushState("Cut Note");
-        showHudFeedback("✂️", "Cut Notes");
+        // showHudFeedback("✂️", "Cut Notes");
       } else if (dawClipboard.type === 'clips') {
         selectedClips.forEach(clipEl => {
           const isPattern = clipEl.classList.contains('pattern-clip');
@@ -4134,13 +4736,13 @@ function init() {
         });
         selectedClips.clear();
         dawHistory.pushState("Cut Clip");
-        showHudFeedback("✂️", "Cut Clips");
+        // showHudFeedback("✂️", "Cut Clips");
       }
     }
 
     function doPaste() {
       if (!dawClipboard.type || dawClipboard.data.length === 0) {
-        showHudFeedback("📋", "Clipboard Empty");
+        // showHudFeedback("📋", "Clipboard Empty");
         return;
       }
 
@@ -4179,7 +4781,7 @@ function init() {
         });
         syncPatternClip(currentTrackId);
         dawHistory.pushState("Paste Note");
-        showHudFeedback("📋", "Pasted Notes");
+        // showHudFeedback("📋", "Pasted Notes");
       } else if (dawClipboard.type === 'clips') {
         const pasteTime = sequencer.snapTimeToGrid(currentPlayheadTime);
         selectedClips.forEach(c => c.classList.remove('selected'));
@@ -4190,7 +4792,7 @@ function init() {
           const lane = document.querySelector(`.track-lane[data-track-id="${item.trackId}"]`);
           if (lane) {
             if (item.isPattern) {
-              const clipEl = createPatternClipUI(item.trackId, finalStartTime, item.duration, lane);
+              const clipEl = createPatternClipUI(item.trackId, finalStartTime, item.duration, lane, item.name);
               clipEl.classList.add('selected');
               selectedClips.add(clipEl);
             } else {
@@ -4198,7 +4800,7 @@ function init() {
               clipEl.className = 'clip audio-clip';
               clipEl.style.left = `${finalStartTime * sequencer.pxPerSecond}px`;
               clipEl.style.width = `${Math.max(20, item.duration * sequencer.pxPerSecond)}px`;
-              clipEl.textContent = item.fileName;
+              clipEl.textContent = item.name || item.fileName;
               clipEl.dataset.startTime = finalStartTime;
               clipEl.dataset.duration = item.duration;
               
@@ -4216,7 +4818,8 @@ function init() {
                 scheduled: false,
                 uiElement: clipEl,
                 _filePath: item.filePath,
-                _fileName: item.fileName
+                _fileName: item.fileName,
+                name: item.name || ''
               });
               
               clipEl.classList.add('selected');
@@ -4225,7 +4828,7 @@ function init() {
           }
         });
         dawHistory.pushState("Paste Clip");
-        showHudFeedback("📋", "Pasted Clips");
+        // showHudFeedback("📋", "Pasted Clips");
       }
     }
 
@@ -4314,6 +4917,18 @@ function init() {
     })
 
     async function loadProject(data) {
+      const savedTrackId = currentTrackId
+      const openGeneratorTrackIds = Array.from(openGeneratorWindows.keys())
+      
+      // Clear plugin and generator windows
+      const host = document.getElementById('plugin-host')
+      if (host) host.innerHTML = ''
+      openPluginWindows.clear()
+      openGeneratorWindows.clear()
+      
+      const noteSettingsModal = document.getElementById('note-settings-modal')
+      if (noteSettingsModal) noteSettingsModal.style.display = 'none'
+
       // Reset transport
       sequencer.stop()
       // BPM / time sig
@@ -4342,6 +4957,15 @@ function init() {
         const prSelect = document.getElementById('pr-track-select')
         if (prSelect) prSelect.innerHTML = ''
         Object.keys(trackUIMap).forEach(k => delete trackUIMap[k])
+
+        let maxCounter = 0;
+        for (const track of data.tracks) {
+          const match = track.id.match(/track_(\d+)/);
+          if (match) {
+            maxCounter = Math.max(maxCounter, parseInt(match[1]));
+          }
+        }
+        customTrackCounter = maxCounter + 1;
 
         for (const track of data.tracks) {
           createTrackUI(track.id, track.name, track.color)
@@ -4403,8 +5027,8 @@ function init() {
               if (fxObj) {
                 fxObj.id = fxData.id
                 if (fxData.params && fxObj.updateParams) {
-                  fxObj.params = { ...fxObj.params, ...fxData.params }
-                  fxObj.updateParams(fxData.params)
+                Object.assign(fxObj.params, fxData.params)
+                fxObj.updateParams(fxData.params)
                 }
               }
             }
@@ -4423,7 +5047,7 @@ function init() {
             if (fxObj) {
               fxObj.id = fxData.id
               if (fxData.params && fxObj.updateParams) {
-                fxObj.params = { ...fxObj.params, ...fxData.params }
+                Object.assign(fxObj.params, fxData.params)
                 fxObj.updateParams(fxData.params)
               }
             }
@@ -4460,13 +5084,18 @@ function init() {
         for (const c of data.clips) {
           if (!c.filePath) continue
           try {
-            // Resolve relative paths relative to currentProjectPath's folder
+            // Resolve relative paths relative to currentProjectPath's folder or default projects folder
             let absolutePath = c.filePath;
             const isRelative = !c.filePath.startsWith('/') && !c.filePath.startsWith('\\') && !c.filePath.includes(':');
-            if (isRelative && currentProjectPath) {
-              const lastIndex = Math.max(currentProjectPath.lastIndexOf('/'), currentProjectPath.lastIndexOf('\\'));
-              const projectDir = currentProjectPath.slice(0, lastIndex);
-              absolutePath = `${projectDir}/${c.filePath}`;
+            if (isRelative) {
+              let baseDir = '';
+              if (currentProjectPath) {
+                const lastIndex = Math.max(currentProjectPath.lastIndexOf('/'), currentProjectPath.lastIndexOf('\\'));
+                baseDir = currentProjectPath.slice(0, lastIndex);
+              } else {
+                baseDir = await window.api.getDefaultProjectsPath();
+              }
+              absolutePath = `${baseDir}/${c.filePath}`;
             }
 
             const buf = await window.api.readFile(absolutePath)
@@ -4488,7 +5117,7 @@ function init() {
             }
             clipEl.style.left = `${c.startTime * sequencer.pxPerSecond}px`
             clipEl.style.width = `${Math.max(20, c.duration * sequencer.pxPerSecond)}px`
-            clipEl.textContent = c.fileName
+            clipEl.textContent = c.name || c.fileName
             clipEl.dataset.startTime = c.startTime
             clipEl.dataset.duration = c.duration
             const rh = document.createElement('div')
@@ -4504,7 +5133,8 @@ function init() {
               scheduled: false,
               uiElement: clipEl,
               _filePath: c.filePath,
-              _fileName: c.fileName
+              _fileName: c.fileName,
+              name: c.name || ''
             })
           } catch (err) { console.warn('Could not restore clip:', err) }
         }
@@ -4514,7 +5144,7 @@ function init() {
         data.patternClips.forEach(pcData => {
           const lane = document.querySelector(`.track-lane[data-track-id="${pcData.trackId}"]`);
           if (lane) {
-            createPatternClipUI(pcData.trackId, pcData.startTime, pcData.duration, lane);
+            createPatternClipUI(pcData.trackId, pcData.startTime, pcData.duration, lane, pcData.name || 'Pattern');
           }
         });
       } else if (data.patterns) {
@@ -4525,9 +5155,25 @@ function init() {
       }
       drawPianoRollTimeline()
       
-      // Refresh current PR/Seq view
-      const prSelect = document.getElementById('pr-track-select')
-      if (prSelect) prSelect.dispatchEvent(new Event('change'))
+      // Restore active track selection
+      if (savedTrackId && trackUIMap[savedTrackId]) {
+        selectTrackById(savedTrackId)
+      } else {
+        const firstTrackId = Object.keys(trackUIMap)[0]
+        if (firstTrackId) {
+          selectTrackById(firstTrackId)
+        } else {
+          const prSelect = document.getElementById('pr-track-select')
+          if (prSelect) prSelect.dispatchEvent(new Event('change'))
+        }
+      }
+
+      // Re-open generator windows if they are still present
+      for (const trackId of openGeneratorTrackIds) {
+        if (trackUIMap[trackId]) {
+          showGeneratorWindow(trackId)
+        }
+      }
       
       const stepCountSelect = document.getElementById('step-count-select')
       if (stepCountSelect) stepCountSelect.dispatchEvent(new Event('change'))
@@ -4562,28 +5208,28 @@ function init() {
 
     // ── Populate Effects & Generators ────────────────────────────
     const effects = [
-      { id: 'reverb', name: 'Reverb', icon: '🌊' },
-      { id: 'delay', name: 'Delay', icon: '⏳' },
-      { id: 'distortion', name: 'Distortion', icon: '🔥' },
-      { id: 'compressor', name: 'Compressor', icon: '🗜️' },
-      { id: 'eq', name: 'Equalizer', icon: '🎚️' },
-      { id: 'flanger', name: 'Flanger', icon: '🌀' },
-      { id: 'phaser', name: 'Phaser', icon: '🔮' },
-      { id: 'chorus', name: 'Chorus', icon: '🎤' },
-      { id: 'tremolo', name: 'Tremolo', icon: '📳' },
-      { id: 'autopan', name: 'Auto-Pan', icon: '↔️' },
-      { id: 'gate', name: 'Gate', icon: '🚪' },
-      { id: 'limiter', name: 'Limiter', icon: '🛡️' },
-      { id: 'ringmod', name: 'Ring Modulator', icon: '🔔' },
-      { id: 'bitcrusher', name: 'Bitcrusher', icon: '👾' },
-      { id: 'autowah', name: 'Auto-Wah', icon: '🐸' }
+      { id: 'reverb', name: 'Reverb', icon: '🌊', category: 'Delay & Reverb' },
+      { id: 'delay', name: 'Delay', icon: '⏳', category: 'Delay & Reverb' },
+      { id: 'distortion', name: 'Distortion', icon: '🔥', category: 'Distortion' },
+      { id: 'compressor', name: 'Compressor', icon: '🗜️', category: 'Dynamics' },
+      { id: 'eq', name: 'Equalizer', icon: '🎚️', category: 'Filter & EQ' },
+      { id: 'flanger', name: 'Flanger', icon: '🌀', category: 'Modulation' },
+      { id: 'phaser', name: 'Phaser', icon: '🔮', category: 'Modulation' },
+      { id: 'chorus', name: 'Chorus', icon: '🎤', category: 'Modulation' },
+      { id: 'tremolo', name: 'Tremolo', icon: '📳', category: 'Modulation' },
+      { id: 'autopan', name: 'Auto-Pan', icon: '↔️', category: 'Modulation' },
+      { id: 'gate', name: 'Gate', icon: '🚪', category: 'Dynamics' },
+      { id: 'limiter', name: 'Limiter', icon: '🛡️', category: 'Dynamics' },
+      { id: 'ringmod', name: 'Ring Modulator', icon: '🔔', category: 'Modulation' },
+      { id: 'bitcrusher', name: 'Bitcrusher', icon: '👾', category: 'Distortion' },
+      { id: 'autowah', name: 'Auto-Wah', icon: '🐸', category: 'Filter & EQ' }
     ]
 
     const generators = [
-      { id: 'sampler', name: 'Sampler', icon: '📼' },
-      { id: 'monosynth', name: 'Mono Synth', icon: '🎹' },
-      { id: 'polysynth', name: 'Poly Synth', icon: '🎼' },
-      { id: 'fmsynth', name: 'FM Synth', icon: '📻' }
+      { id: 'sampler', name: 'Sampler', icon: '📼', category: 'Samplers' },
+      { id: 'monosynth', name: 'Mono Synth', icon: '🎹', category: 'Synthesizers' },
+      { id: 'polysynth', name: 'Poly Synth', icon: '🎼', category: 'Synthesizers' },
+      { id: 'fmsynth', name: 'FM Synth', icon: '📻', category: 'Synthesizers' }
     ]
 
     const effectsContainer = document.getElementById('effects-container')
@@ -5126,64 +5772,99 @@ const openGeneratorWindows = new Map();
     function populateList(container, items, type) {
       if (!container) return;
       container.innerHTML = ''
-      const list = document.createElement('ul')
-      list.className = 'browser-accordion'
-      
+
+      // Group items by category
+      const categories = {};
       items.forEach(item => {
-        const li = document.createElement('li')
-        li.className = 'browser-item'
-        li.innerHTML = `
-          <span style="font-size: 1rem; margin-right: 4px;">${item.icon}</span>
-          <span class="browser-item-name">${item.name}</span>
-        `
-        li.addEventListener('click', () => {
-          if (type === 'effects') {
-            let fxObj
-            if (currentTrackId === 'master') {
-              fxObj = engine.addEffect(item.id)
-            } else {
-              const currentTrack = engine.getTrack(currentTrackId)
-              if (currentTrack) {
-                fxObj = currentTrack.addEffect(item.id)
+        const cat = item.category || 'Other';
+        if (!categories[cat]) categories[cat] = [];
+        categories[cat].push(item);
+      });
+
+      // For each category, create an accordion folder structure
+      for (const [catName, catItems] of Object.entries(categories)) {
+        const folderItem = document.createElement('div');
+        folderItem.className = 'browser-accordion';
+        folderItem.style.marginBottom = '6px';
+
+        const header = document.createElement('div');
+        header.className = 'folder-header collapsed';
+        header.innerHTML = `
+          <div style="display:flex; align-items:center; gap:8px; flex-grow:1;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 256 256" style="transition: transform 0.2s;"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"></path></svg> 
+            <span style="font-weight: 500; font-size: 0.75rem; letter-spacing: 0.02em;">${catName.toUpperCase()}</span>
+          </div>
+        `;
+
+        const content = document.createElement('ul');
+        content.className = 'folder-content collapsed';
+        content.style.paddingLeft = '8px';
+
+        header.addEventListener('click', () => {
+          header.classList.toggle('collapsed');
+          content.classList.toggle('collapsed');
+        });
+
+        catItems.forEach(item => {
+          const li = document.createElement('li');
+          li.className = 'browser-item';
+          li.style.paddingLeft = '12px';
+          li.innerHTML = `
+            <span style="font-size: 0.9rem; margin-right: 6px;">${item.icon}</span>
+            <span class="browser-item-name">${item.name}</span>
+          `;
+          li.addEventListener('click', () => {
+            if (type === 'effects') {
+              let fxObj;
+              if (currentTrackId === 'master') {
+                fxObj = engine.addEffect(item.id);
+              } else {
+                const currentTrack = engine.getTrack(currentTrackId);
+                if (currentTrack) {
+                  fxObj = currentTrack.addEffect(item.id);
+                }
+              }
+              if (fxObj) {
+                fxObj.icon = item.icon;
+                console.log(`Added ${item.name} to ${currentTrackId}`);
+                showPluginWindow(fxObj);
+                window.updatePluginsFooter();
+                if (window.updateMixerInserts) window.updateMixerInserts();
+                dawHistory.pushState(`Add ${item.name} Plugin`);
+              }
+            } else if (type === 'generators') {
+              if (currentTrackId !== 'master') {
+                const currentTrack = engine.getTrack(currentTrackId);
+                if (currentTrack) {
+                  let defaultParams = {};
+                  if (item.id === 'sampler') {
+                    defaultParams = { attack: 0.005, decay: 0.1, sustain: 1.0, release: 0.1, cutoff: 20000, resonance: 1.0, pitch: 0 };
+                  } else if (item.id === 'monosynth') {
+                    defaultParams = { oscType: 'sawtooth', subOsc: 0.5, attack: 0.05, decay: 0.2, sustain: 0.6, release: 0.3, cutoff: 2000, resonance: 2.0 };
+                  } else if (item.id === 'polysynth') {
+                    defaultParams = { oscType: 'triangle', detune: 10, attack: 0.1, decay: 0.3, sustain: 0.7, release: 0.5, cutoff: 5000, resonance: 1.0 };
+                  } else if (item.id === 'fmsynth') {
+                    defaultParams = { carrierType: 'sine', modType: 'sine', modIndex: 5, modFreqRatio: 2.0, attack: 0.01, decay: 0.2, sustain: 0.8, release: 0.4 };
+                  }
+                  
+                  currentTrack.generator = {
+                    type: item.id,
+                    params: currentTrack.generator?.type === item.id ? (currentTrack.generator.params || defaultParams) : defaultParams
+                  };
+                  showGeneratorWindow(currentTrackId);
+                  window.updatePluginsFooter();
+                  dawHistory.pushState(`Switch Track Generator to ${item.name}`);
+                }
               }
             }
-            if (fxObj) {
-              fxObj.icon = item.icon
-              console.log(`Added ${item.name} to ${currentTrackId}`)
-              showPluginWindow(fxObj)
-              window.updatePluginsFooter()
-              if (window.updateMixerInserts) window.updateMixerInserts()
-              dawHistory.pushState(`Add ${item.name} Plugin`)
-            }
-          } else if (type === 'generators') {
-            if (currentTrackId !== 'master') {
-              const currentTrack = engine.getTrack(currentTrackId)
-              if (currentTrack) {
-                let defaultParams = {}
-                if (item.id === 'sampler') {
-                  defaultParams = { attack: 0.005, decay: 0.1, sustain: 1.0, release: 0.1, cutoff: 20000, resonance: 1.0, pitch: 0 }
-                } else if (item.id === 'monosynth') {
-                  defaultParams = { oscType: 'sawtooth', subOsc: 0.5, attack: 0.05, decay: 0.2, sustain: 0.6, release: 0.3, cutoff: 2000, resonance: 2.0 }
-                } else if (item.id === 'polysynth') {
-                  defaultParams = { oscType: 'triangle', detune: 10, attack: 0.1, decay: 0.3, sustain: 0.7, release: 0.5, cutoff: 5000, resonance: 1.0 }
-                } else if (item.id === 'fmsynth') {
-                  defaultParams = { carrierType: 'sine', modType: 'sine', modIndex: 5, modFreqRatio: 2.0, attack: 0.01, decay: 0.2, sustain: 0.8, release: 0.4 }
-                }
-                
-                currentTrack.generator = {
-                  type: item.id,
-                  params: currentTrack.generator?.type === item.id ? (currentTrack.generator.params || defaultParams) : defaultParams
-                }
-                showGeneratorWindow(currentTrackId)
-                window.updatePluginsFooter()
-                dawHistory.pushState(`Switch Track Generator to ${item.name}`)
-              }
-            }
-          }
-        })
-        list.appendChild(li)
-      })
-      container.appendChild(list)
+          });
+          content.appendChild(li);
+        });
+
+        folderItem.appendChild(header);
+        folderItem.appendChild(content);
+        container.appendChild(folderItem);
+      }
     }
 
     populateList(effectsContainer, effects, 'effects')
@@ -5593,7 +6274,7 @@ const openGeneratorWindows = new Map();
         autoSaveTimer = setInterval(async () => {
           if (currentProjectPath) {
             await doSave(currentProjectPath);
-            showToast('💾 Project auto-saved');
+            showToast('Project auto-saved');
           }
         }, intervalMinutes * 60 * 1000);
       }

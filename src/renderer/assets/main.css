@@ -42,7 +42,7 @@ body {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: var(--header-height) 1fr 4px var(--dynamic-footer-height);
-  height: 100vh;
+  height: calc(100vh - 24px);
   width: 100vw;
 }
 
@@ -502,6 +502,17 @@ aside {
 
 .browser-tab-content.active {
   display: flex;
+}
+
+.browser-section-title {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 8px 8px 4px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 8px;
 }
 
 .browser-list-container {
@@ -2906,5 +2917,48 @@ body.light-theme .daw-hud-icon {
 
 body.light-theme .daw-hud-text {
   color: var(--text-primary) !important;
+}
+
+/* ======== STATUS BAR (BOTTOM BAR) ======== */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: var(--surface-color);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  font-size: 0.65rem;
+  font-family: 'Outfit', 'Inter', sans-serif;
+  font-weight: 500;
+  color: var(--text-secondary);
+  z-index: 9999;
+  letter-spacing: 0.03em;
+}
+
+.status-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-weight: normal;
+}
+
+.status-right {
+  color: var(--text-secondary);
+  opacity: 0.8;
+  text-transform: uppercase;
+}
+
+/* ======== TRACK DRAGGING REORDERING ======== */
+.track-header.dragging-track {
+  opacity: 0.6;
+  background: var(--surface-hover) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
 }
 

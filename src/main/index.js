@@ -2,7 +2,12 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join, extname } from 'path'
 import * as fs from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../resources/icon.png?asset'
+
+// Required for @electron-forge/maker-squirrel on Windows
+if (require('electron-squirrel-startup')) app.quit()
+
+// Icon path — plain path.join replaces the ?asset Vite query (not supported in Forge)
+const icon = join(__dirname, '../../resources/icon.png')
 
 let mainWindow = null
 let fileToOpen = null
@@ -44,14 +49,14 @@ if (!gotTheLock) {
 function createWindow() {
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    width: 1100,
+    width: 1150,
     height: 650,
     show: false,
     frame: false,
     autoHideMenuBar: true,
     icon,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, 'preload.js'),
       sandbox: false
     }
   })
@@ -65,12 +70,12 @@ function createWindow() {
     return { action: 'deny' }
   })
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  // Load the Vite dev server URL in development (injected by @electron-forge/plugin-vite)
+  // or the bundled index.html in production.
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`))
   }
 
   mainWindow.webContents.on('did-finish-load', () => {
@@ -85,6 +90,17 @@ function createWindow() {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  // Create default Bounce folders (projects & library) inside Documents
+  try {
+    const docsPath = app.getPath('documents')
+    const bounceProjectsPath = join(docsPath, 'Bounce', 'projects')
+    const bounceLibraryPath = join(docsPath, 'Bounce', 'library')
+    fs.mkdir(bounceProjectsPath, { recursive: true }).catch(err => console.error('Failed to create default projects path on start:', err))
+    fs.mkdir(bounceLibraryPath, { recursive: true }).catch(err => console.error('Failed to create default library path on start:', err))
+  } catch (err) {
+    console.error('Failed to initialize default Bounce directories on startup:', err)
+  }
+
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -200,13 +216,28 @@ app.whenReady().then(() => {
 
   ipcMain.handle('app:getDefaultProjectsPath', async () => {
     try {
-      const musicPath = app.getPath('music')
-      const bounceProjectsPath = join(musicPath, 'Bounce Projects')
+      const docsPath = app.getPath('documents')
+      const bounceProjectsPath = join(docsPath, 'Bounce', 'projects')
       await fs.mkdir(bounceProjectsPath, { recursive: true })
+      // Create library directory inside Bounce folder
+      const libraryPath = join(docsPath, 'Bounce', 'library')
+      await fs.mkdir(libraryPath, { recursive: true })
       return bounceProjectsPath
     } catch (error) {
       console.error('Failed to get default projects path:', error)
       return app.getPath('userData')
+    }
+  })
+
+  ipcMain.handle('app:getLibraryPath', async () => {
+    try {
+      const docsPath = app.getPath('documents')
+      const libraryPath = join(docsPath, 'Bounce', 'library')
+      await fs.mkdir(libraryPath, { recursive: true })
+      return libraryPath
+    } catch (error) {
+      console.error('Failed to get library path:', error)
+      return null
     }
   })
 
@@ -248,9 +279,10 @@ app.whenReady().then(() => {
 
     const srcPath = filePaths[0]
     const packName = srcPath.split(/[/\\]/).pop()
-    const targetBase = is.dev 
-      ? join(app.getAppPath(), 'src/renderer/public/audio')
-      : join(process.resourcesPath, 'audio')
+    
+    const docsPath = app.getPath('documents')
+    const targetBase = join(docsPath, 'Bounce', 'library')
+    await fs.mkdir(targetBase, { recursive: true })
     
     const destPath = join(targetBase, packName)
 

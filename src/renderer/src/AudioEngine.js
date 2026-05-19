@@ -13,6 +13,83 @@ export function parseNoteToFrequency(noteName) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
+// Convert AudioBuffer to WAV Blob
+function audioBufferToWav(buffer) {
+  const numOfChan = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // raw PCM
+  const bitDepth = 16;
+  
+  let result;
+  if (numOfChan === 2) {
+    result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+  } else {
+    result = buffer.getChannelData(0);
+  }
+  
+  const bufferLength = result.length * 2;
+  const arrayBuffer = new ArrayBuffer(44 + bufferLength);
+  const view = new DataView(arrayBuffer);
+  
+  function writeString(view, offset, string) {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  }
+  
+  function floatTo16BitPCM(output, offset, input) {
+    for (let i = 0; i < input.length; i++, offset += 2) {
+      let s = Math.max(-1, Math.min(1, input[i]));
+      output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+  }
+  
+  function interleave(inputL, inputR) {
+    const length = inputL.length + inputR.length;
+    const result = new Float32Array(length);
+    let index = 0;
+    let inputIndex = 0;
+    while (index < length) {
+      result[index++] = inputL[inputIndex];
+      result[index++] = inputR[inputIndex];
+      inputIndex++;
+    }
+    return result;
+  }
+  
+  /* RIFF identifier */
+  writeString(view, 0, 'RIFF');
+  /* file length */
+  view.setUint32(4, 36 + bufferLength, true);
+  /* RIFF type */
+  writeString(view, 8, 'WAVE');
+  /* format chunk identifier */
+  writeString(view, 12, 'fmt ');
+  /* format chunk length */
+  view.setUint32(16, 16, true);
+  /* sample format (raw) */
+  view.setUint16(20, format, true);
+  /* channel count */
+  view.setUint16(22, numOfChan, true);
+  /* sample rate */
+  view.setUint32(24, sampleRate, true);
+  /* byte rate (sample rate * block align) */
+  view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
+  /* block align (channel count * bytes per sample) */
+  view.setUint16(32, numOfChan * (bitDepth / 8), true);
+  /* bits per sample */
+  view.setUint16(34, bitDepth, true);
+  /* data chunk identifier */
+  writeString(view, 36, 'data');
+  /* data chunk length */
+  view.setUint32(40, bufferLength, true);
+  
+  // Write PCM audio data
+  floatTo16BitPCM(view, 44, result);
+  
+  return new Blob([view], { type: 'audio/wav' });
+}
+
 // Synthetic Impulse Response generator for Reverb
 function createImpulseResponse(ctx, duration=2, decay=2.0) {
   const sampleRate = ctx.sampleRate;
@@ -1258,13 +1335,20 @@ class AudioEngine {
         ? { deviceId: { exact: this.inputDeviceId } }
         : true };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg']
-        .find(t => MediaRecorder.isTypeSupported(t)) || '';
-      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+      
+      const source = this.ctx.createMediaStreamSource(stream);
+      const processor = this.ctx.createScriptProcessor(4096, 1, 1);
       const chunks = [];
-      mr.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-      mr.start(100);
-      this.activeRecorders.set(trackId, { mediaRecorder: mr, chunks, stream });
+      
+      processor.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        chunks.push(new Float32Array(input));
+      };
+      
+      source.connect(processor);
+      processor.connect(this.ctx.destination);
+      
+      this.activeRecorders.set(trackId, { source, processor, chunks, stream });
       return true;
     } catch (err) {
       console.error('Mic access denied or unavailable:', err);
@@ -1275,23 +1359,35 @@ class AudioEngine {
   async stopRecording(trackId) {
     const rec = this.activeRecorders.get(trackId);
     if (!rec) return null;
-    return new Promise(resolve => {
-      const { mediaRecorder, chunks, stream } = rec;
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        try {
-          const blob = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' });
-          const arrayBuffer = await blob.arrayBuffer();
-          const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
-          resolve({ audioBuffer, blob });
-        } catch (err) {
-          console.error('Could not decode recorded audio:', err);
-          resolve(null);
-        }
-      };
-      mediaRecorder.stop();
-      this.activeRecorders.delete(trackId);
-    });
+    
+    const { source, processor, chunks, stream } = rec;
+    
+    source.disconnect();
+    processor.disconnect();
+    stream.getTracks().forEach(t => t.stop());
+    
+    this.activeRecorders.delete(trackId);
+    
+    let totalLength = 0;
+    for (const chunk of chunks) {
+      totalLength += chunk.length;
+    }
+    
+    if (totalLength === 0) return null;
+    
+    const resultBuffer = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      resultBuffer.set(chunk, offset);
+      offset += chunk.length;
+    }
+    
+    const audioBuffer = this.ctx.createBuffer(1, totalLength, this.ctx.sampleRate);
+    audioBuffer.copyToChannel(resultBuffer, 0);
+    
+    const wavBlob = audioBufferToWav(audioBuffer);
+    
+    return { audioBuffer, blob: wavBlob };
   }
 
   isRecordingTrack(trackId) {

@@ -10,6 +10,7 @@ const api = {
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   writeFile: (filePath, data) => ipcRenderer.invoke('fs:writeFile', filePath, data),
   getAudioPath: () => ipcRenderer.invoke('app:getAudioPath'),
+  getLibraryPath: () => ipcRenderer.invoke('app:getLibraryPath'),
   installSoundPack: () => ipcRenderer.invoke('app:installSoundPack'),
   getDefaultProjectsPath: () => ipcRenderer.invoke('app:getDefaultProjectsPath'),
   mkdir: (dirPath) => ipcRenderer.invoke('fs:mkdir', dirPath),

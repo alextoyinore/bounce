@@ -286,37 +286,47 @@ export class Sequencer {
 
   _scheduleClips(currentTime, lookahead) {
     this.clips.forEach(clip => {
-      if (
-        clip.startTime >= currentTime &&
-        clip.startTime < currentTime + lookahead &&
-        !clip.scheduled
-      ) {
+      if (!clip.buffer) return;
+      
+      const startsInWindow = clip.startTime >= currentTime && clip.startTime < currentTime + lookahead;
+      const isOverlappingAtStart = currentTime > clip.startTime && currentTime < clip.startTime + clip.duration;
+      
+      if ((startsInWindow || isOverlappingAtStart) && !clip.scheduled) {
         clip.scheduled = true;
         const source = engine.ctx.createBufferSource();
         source.buffer = clip.buffer;
 
         // --- Tempo sync: if the clip has a bpmAtCapture, adjust playbackRate ---
-        // The clip's musicalDuration (bar-snapped) tells us how long it should
-        // take at the current BPM.  If it differs from the raw buffer length,
-        // speed up / slow down proportionally.
         const rawDuration = clip.buffer.duration;
         const originalMusicalDuration = clip.originalDuration || clip.duration;
         if (originalMusicalDuration > 0 && Math.abs(rawDuration - originalMusicalDuration) > 0.01) {
-          // Stretch: play the buffer faster/slower to fit the musical duration
           source.playbackRate.value = rawDuration / originalMusicalDuration;
         }
 
         const track = engine.getTrack(clip.trackId);
         if (track) {
           source.connect(track.gainNode);
-          const exactTime = this.startTime + clip.startTime;
-          // Only play the trimmed portion of the buffer
-          const playDuration = clip.duration;
-          source.start(exactTime, 0, rawDuration * (source.playbackRate.value || 1) > 0
-            ? playDuration * (source.playbackRate.value || 1)
-            : undefined);
-          clip.sourceNode = source;
-          source.onended = () => { clip.sourceNode = null; };
+          
+          let exactTime = this.startTime + clip.startTime;
+          let offset = 0;
+          let playDuration = clip.duration;
+          
+          if (isOverlappingAtStart) {
+            // Start playing immediately from the offset
+            exactTime = engine.ctx.currentTime;
+            const clipTimelineOffset = currentTime - clip.startTime;
+            offset = clipTimelineOffset * (source.playbackRate.value || 1);
+            playDuration = clip.duration - clipTimelineOffset;
+            if (offset >= rawDuration) return;
+          }
+          
+          if (playDuration > 0) {
+            source.start(exactTime, offset, rawDuration * (source.playbackRate.value || 1) > 0
+              ? playDuration * (source.playbackRate.value || 1)
+              : undefined);
+            clip.sourceNode = source;
+            source.onended = () => { clip.sourceNode = null; };
+          }
         }
       }
     });
