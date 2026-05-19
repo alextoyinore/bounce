@@ -90,7 +90,6 @@ function init() {
       async undo() {
         if (this.undoStack.length === 0) {
           showToast("Nothing to Undo")
-          showHudFeedback("↩️", "Nothing to Undo")
           return
         }
         const current = serializeProject()
@@ -103,7 +102,6 @@ function init() {
           await loadProject(data)
           isRestoringHistory = false
           showToast(`Undo: ${previous.actionName}`)
-          showHudFeedback("↩️", `Undo: ${previous.actionName}`)
         } catch(e) {
           isRestoringHistory = false
           console.error("Undo failed:", e)
@@ -113,7 +111,6 @@ function init() {
       async redo() {
         if (this.redoStack.length === 0) {
           showToast("Nothing to Redo")
-          showHudFeedback("↪️", "Nothing to Redo")
           return
         }
         const next = this.redoStack.pop()
@@ -126,7 +123,6 @@ function init() {
           await loadProject(data)
           isRestoringHistory = false
           showToast(`Redo: ${next.actionName}`)
-          showHudFeedback("↪️", `Redo: ${next.actionName}`)
         } catch(e) {
           isRestoringHistory = false
           console.error("Redo failed:", e)
@@ -3045,14 +3041,21 @@ function init() {
     let lastPrNoteDuration = 1; 
     let prDragState = null; // { type: 'move'|'resize'|'paint', noteElement, startX, startY, startStep, startDur, originalNoteObj, trackId }
     
-    function createPrNote(trackId, noteName, stepIndex, durationSteps, color) {
+    function createPrNote(trackId, noteName, stepIndex, durationSteps, color, velocity = 1.0, pan = 0.0, pitch = 0, probability = 100) {
       const note = document.createElement('div')
       note.className = 'pr-note'
       note.dataset.step = stepIndex
       note.dataset.duration = durationSteps
+      note.dataset.velocity = velocity
+      note.dataset.pan = pan
+      note.dataset.pitch = pitch
+      note.dataset.probability = probability
       note.style.left = `${stepIndex * getPrStepPx() + 1}px`
       note.style.width = `${durationSteps * getPrStepPx() - 3}px`
-      if (color) note.style.background = color
+      if (color) {
+        note.style.background = color;
+        note.style.opacity = Math.max(0.3, Math.min(1.0, velocity));
+      }
       
       const handle = document.createElement('div')
       handle.className = 'resize-handle'
@@ -3127,6 +3130,29 @@ function init() {
         if (noteEl) {
           e.preventDefault()
           e.stopPropagation()
+          
+          if (e.detail === 2) {
+            // Double click Note Settings Modal
+            const nsModal = document.getElementById('note-settings-modal');
+            if (nsModal) {
+              const vel = parseFloat(noteEl.dataset.velocity) || 1.0;
+              const pan = parseFloat(noteEl.dataset.pan) || 0.0;
+              const pitch = parseInt(noteEl.dataset.pitch) || 0;
+              const prob = parseInt(noteEl.dataset.probability) || 100;
+              
+              window.updateNSKnobUI('vel', vel);
+              window.updateNSKnobUI('pan', pan);
+              window.updateNSKnobUI('pitch', pitch);
+              window.updateNSKnobUI('prob', prob);
+              
+              nsModal.style.display = 'flex';
+              
+              // Bind temporary selected note to window so close btn can access it
+              window.__selectedNoteForModal = noteEl;
+            }
+            return;
+          }
+          
           const row = noteEl.closest('.pr-row')
           
           if (e.ctrlKey || e.shiftKey) {
@@ -3214,7 +3240,7 @@ function init() {
           const map = trackUIMap[currentTrackId]
           const color = map && map.headers[0] ? map.headers[0].laneEl.style.getPropertyValue('--track-color') : null
           
-          const note = createPrNote(currentTrackId, noteName, step, lastPrNoteDuration, color)
+          const note = createPrNote(currentTrackId, noteName, step, lastPrNoteDuration, color, 1.0, 0.0)
           row.appendChild(note)
           
           prDragState = {
@@ -3232,6 +3258,153 @@ function init() {
           }
         }
       })
+      
+      // Knobs data and interaction for Note Settings
+      const nsKnobValues = {
+        vel: 1.0,
+        pan: 0.0,
+        pitch: 0,
+        prob: 100
+      };
+
+      function updateNSKnobUI(id, val) {
+        const knob = document.getElementById(`nsk-${id}`);
+        if (!knob) return;
+        
+        const min = parseFloat(knob.dataset.min);
+        const max = parseFloat(knob.dataset.max);
+        const step = parseFloat(knob.dataset.step);
+        
+        // Clamp
+        val = Math.max(min, Math.min(max, val));
+        
+        // Format decimal places based on step
+        if (step < 1) {
+          val = parseFloat(val.toFixed(2));
+        } else {
+          val = Math.round(val);
+        }
+        
+        nsKnobValues[id] = val;
+        knob.dataset.value = val;
+
+        // Map val to rotation (-135deg to 135deg)
+        const range = max - min;
+        const percent = range === 0 ? 0 : (val - min) / range;
+        const angle = -135 + percent * 270;
+        
+        const indicator = knob.querySelector('.knob-indicator');
+        if (indicator) {
+          indicator.style.transform = `translateX(-50%) rotate(${angle}deg)`;
+        }
+
+        // Format label
+        const label = document.getElementById(`ns-${id}-val`);
+        if (label) {
+          if (id === 'vel') label.textContent = val.toFixed(2);
+          else if (id === 'pan') {
+            if (val === 0) label.textContent = 'C';
+            else if (val < 0) label.textContent = `L${Math.abs(val).toFixed(2)}`;
+            else label.textContent = `R${val.toFixed(2)}`;
+          }
+          else if (id === 'pitch') label.textContent = `${val > 0 ? '+' : ''}${val} st`;
+          else if (id === 'prob') label.textContent = `${Math.round(val)}%`;
+        }
+      }
+
+      // Mouse drag logic for NS knobs
+      let activeNSKnob = null;
+      let startYNSKnob = 0;
+      let startValueNSKnob = 0;
+
+      document.querySelectorAll('.ns-knob').forEach(knob => {
+        const id = knob.id.replace('nsk-', '');
+        
+        // Mousedown drag
+        knob.addEventListener('mousedown', (e) => {
+          activeNSKnob = id;
+          startYNSKnob = e.clientY;
+          startValueNSKnob = nsKnobValues[id];
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const moveHandler = (moveEvent) => {
+            if (!activeNSKnob) return;
+            const deltaY = startYNSKnob - moveEvent.clientY;
+            
+            const min = parseFloat(knob.dataset.min);
+            const max = parseFloat(knob.dataset.max);
+            const step = parseFloat(knob.dataset.step);
+            
+            const range = max - min;
+            // drag 120px to move full range
+            const valueChange = (deltaY / 120) * range;
+            let newVal = startValueNSKnob + valueChange;
+            
+            newVal = Math.round(newVal / step) * step;
+            updateNSKnobUI(activeNSKnob, newVal);
+          };
+
+          const upHandler = () => {
+            activeNSKnob = null;
+            window.removeEventListener('mousemove', moveHandler);
+            window.removeEventListener('mouseup', upHandler);
+          };
+
+          window.addEventListener('mousemove', moveHandler);
+          window.addEventListener('mouseup', upHandler);
+        });
+
+        // Mousewheel scroll
+        knob.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          const step = parseFloat(knob.dataset.step);
+          const direction = e.deltaY < 0 ? 1 : -1;
+          const newVal = nsKnobValues[id] + direction * step;
+          updateNSKnobUI(id, newVal);
+        });
+      });
+
+      // Hook up window functions so trigger click can initialize
+      window.updateNSKnobUI = updateNSKnobUI;
+      
+      document.getElementById('note-settings-close-btn')?.addEventListener('click', () => {
+        document.getElementById('note-settings-modal').style.display = 'none';
+        
+        const selectedNoteForModal = window.__selectedNoteForModal;
+        if (selectedNoteForModal) {
+          const vel = nsKnobValues.vel;
+          const pan = nsKnobValues.pan;
+          const pitch = nsKnobValues.pitch;
+          const prob = nsKnobValues.prob;
+          
+          const currentTrackId = prTrackSelect ? prTrackSelect.value : 'drums';
+          const row = selectedNoteForModal.closest('.pr-row');
+          const noteName = row ? row.dataset.note : null;
+          const step = parseInt(selectedNoteForModal.dataset.step);
+          const dur = parseFloat(selectedNoteForModal.dataset.duration);
+          
+          if (noteName !== null) {
+            sequencer.removeNoteFromPattern(currentTrackId, noteName, step);
+            sequencer.addNoteToPattern(currentTrackId, noteName, step, dur, vel, pan, pitch, prob);
+            
+            selectedNoteForModal.dataset.velocity = vel;
+            selectedNoteForModal.dataset.pan = pan;
+            selectedNoteForModal.dataset.pitch = pitch;
+            selectedNoteForModal.dataset.probability = prob;
+            
+            // update visual
+            const map = trackUIMap[currentTrackId];
+            const color = map && map.headers[0] ? map.headers[0].laneEl.style.getPropertyValue('--track-color') : null;
+            if (color) {
+              selectedNoteForModal.style.opacity = Math.max(0.3, Math.min(1.0, vel));
+            }
+            syncPatternClip(currentTrackId);
+            dawHistory.pushState("Change Note Settings");
+          }
+        }
+        window.__selectedNoteForModal = null;
+      });
       
       document.addEventListener('mousemove', (e) => {
         if (prMarqueeStart) {
@@ -3367,7 +3540,7 @@ function init() {
           sequencer.patterns[trackId].forEach(noteObj => {
             const row = grid.querySelector(`[data-note="${noteObj.note}"]`);
             if (row) {
-              const note = createPrNote(trackId, noteObj.note, noteObj.step, noteObj.durationSteps, color)
+              const note = createPrNote(trackId, noteObj.note, noteObj.step, noteObj.durationSteps, color, noteObj.velocity, noteObj.pan, noteObj.pitch, noteObj.probability)
               row.appendChild(note);
             }
           });
@@ -3451,6 +3624,186 @@ function init() {
     // Call it initially
     drawPianoRollTimeline();
 
+    // ── Piano Roll Operations (Quantize, Chop, Legato) ─────────────
+    function getSelectedOrAllNotes(trackId) {
+      if (selectedNotes.size > 0) {
+        return Array.from(selectedNotes).map(el => {
+          const row = el.closest('.pr-row');
+          return {
+            el,
+            noteName: row ? row.dataset.note : null,
+            step: parseInt(el.dataset.step) || 0,
+            duration: parseFloat(el.dataset.duration || 1)
+          };
+        }).filter(n => n.noteName);
+      } else {
+        const notes = sequencer.patterns[trackId] || [];
+        const grid = document.getElementById('piano-grid');
+        return notes.map(n => {
+          const row = grid.querySelector(`[data-note="${n.note}"]`);
+          const el = row ? Array.from(row.querySelectorAll('.pr-note')).find(e => parseInt(e.dataset.step) === n.step) : null;
+          return {
+            el,
+            noteName: n.note,
+            step: n.step,
+            duration: n.durationSteps
+          };
+        }).filter(n => n.el);
+      }
+    }
+
+    document.getElementById('pr-quantize-btn')?.addEventListener('click', () => {
+      const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+      const notesToProcess = getSelectedOrAllNotes(currentTrackId);
+      if (notesToProcess.length === 0) return;
+
+      const gridSnapSelect = document.getElementById('grid-snap-select');
+      const snapInterval = gridSnapSelect ? parseFloat(gridSnapSelect.value) : 0.0625;
+      const snapSteps = snapInterval * 16;
+      if (snapSteps === 0) return;
+
+      let changed = false;
+      notesToProcess.forEach(n => {
+        const newStep = Math.round(n.step / snapSteps) * snapSteps;
+        if (newStep !== n.step) {
+          changed = true;
+          sequencer.removeNoteFromPattern(currentTrackId, n.noteName, n.step);
+          
+          const oldStepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${n.noteName}"]`);
+          if (oldStepSeqRow) {
+            const s = oldStepSeqRow.querySelector(`[data-step-index="${n.step}"]`);
+            if (s) s.classList.remove('active');
+          }
+
+          sequencer.addNoteToPattern(currentTrackId, n.noteName, newStep, n.duration);
+          
+          const newStepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${n.noteName}"]`);
+          if (newStepSeqRow) {
+            const s = newStepSeqRow.querySelector(`[data-step-index="${newStep}"]`);
+            if (s) s.classList.add('active');
+          }
+
+          n.el.dataset.step = newStep;
+          n.el.style.left = `${newStep * getPrStepPx() + 1}px`;
+        }
+      });
+      if (changed) {
+        syncPatternClip(currentTrackId);
+        dawHistory.pushState("Quantize Notes");
+        showHudFeedback("⏱️", "Quantized Notes");
+      }
+    });
+
+    document.getElementById('pr-chop-btn')?.addEventListener('click', () => {
+      const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+      if (selectedNotes.size === 0) {
+        showHudFeedback("✂️", "Select notes to chop");
+        return;
+      }
+
+      const gridSnapSelect = document.getElementById('grid-snap-select');
+      const snapInterval = gridSnapSelect ? parseFloat(gridSnapSelect.value) : 0.0625;
+      const snapSteps = snapInterval * 16;
+      if (snapSteps === 0) return;
+
+      const notesToProcess = getSelectedOrAllNotes(currentTrackId);
+      const map = trackUIMap[currentTrackId];
+      const color = map && map.headers[0] ? map.headers[0].laneEl.style.getPropertyValue('--track-color') : null;
+      const grid = document.getElementById('piano-grid');
+
+      let chopped = false;
+      notesToProcess.forEach(n => {
+        const numChunks = Math.floor(n.duration / snapSteps);
+        if (numChunks > 1) {
+          chopped = true;
+          sequencer.removeNoteFromPattern(currentTrackId, n.noteName, n.step);
+          n.el.remove();
+          selectedNotes.delete(n.el);
+
+           const row = grid.querySelector(`[data-note="${n.noteName}"]`);
+          const pitch = parseInt(n.el.dataset.pitch || 0);
+          const prob = parseInt(n.el.dataset.probability || 100);
+          for (let i = 0; i < numChunks; i++) {
+            const newStep = n.step + i * snapSteps;
+            sequencer.addNoteToPattern(currentTrackId, n.noteName, newStep, snapSteps, n.el.dataset.velocity, n.el.dataset.pan, pitch, prob);
+            if (row) {
+              const noteEl = createPrNote(currentTrackId, n.noteName, newStep, snapSteps, color, n.el.dataset.velocity, n.el.dataset.pan, pitch, prob);
+              row.appendChild(noteEl);
+              noteEl.classList.add('selected');
+              selectedNotes.add(noteEl);
+            }
+          }
+        }
+      });
+
+      if (chopped) {
+        syncPatternClip(currentTrackId);
+        dawHistory.pushState("Chop Notes");
+        showHudFeedback("✂️", "Chopped Notes");
+      }
+    });
+
+    document.getElementById('pr-legato-btn')?.addEventListener('click', () => {
+      const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+      const notesToProcess = getSelectedOrAllNotes(currentTrackId);
+      if (notesToProcess.length === 0) return;
+
+      notesToProcess.sort((a, b) => a.step - b.step);
+      let changed = false;
+
+      for (let i = 0; i < notesToProcess.length; i++) {
+        const n = notesToProcess[i];
+        let nextStep = Infinity;
+        if (i < notesToProcess.length - 1) {
+          nextStep = notesToProcess[i + 1].step;
+        }
+
+        if (nextStep !== Infinity && nextStep > n.step) {
+          const newDur = nextStep - n.step;
+          if (newDur !== n.duration) {
+            changed = true;
+            sequencer.removeNoteFromPattern(currentTrackId, n.noteName, n.step);
+            sequencer.addNoteToPattern(currentTrackId, n.noteName, n.step, newDur);
+            n.el.dataset.duration = newDur;
+            n.el.style.width = `${newDur * getPrStepPx() - 3}px`;
+          }
+        }
+      }
+
+      if (changed) {
+        syncPatternClip(currentTrackId);
+        dawHistory.pushState("Legato Notes");
+        showHudFeedback("📏", "Applied Legato");
+      }
+    });
+
+    document.getElementById('pr-random-vel-btn')?.addEventListener('click', () => {
+      const currentTrackId = document.getElementById('pr-track-select')?.value || 'drums';
+      const notesToProcess = getSelectedOrAllNotes(currentTrackId);
+      if (notesToProcess.length === 0) return;
+
+      const map = trackUIMap[currentTrackId];
+      const color = map && map.headers[0] ? map.headers[0].laneEl.style.getPropertyValue('--track-color') : null;
+
+      notesToProcess.forEach(n => {
+        const pan = parseFloat(n.el.dataset.pan || 0.0);
+        // Random velocity between 0.4 and 1.2
+        const randomVel = 0.4 + Math.random() * 0.8;
+        
+        sequencer.removeNoteFromPattern(currentTrackId, n.noteName, n.step);
+        sequencer.addNoteToPattern(currentTrackId, n.noteName, n.step, n.duration, randomVel, pan);
+        
+        n.el.dataset.velocity = randomVel;
+        if (color) {
+          n.el.style.opacity = Math.max(0.3, Math.min(1.0, randomVel));
+        }
+      });
+
+      syncPatternClip(currentTrackId);
+      dawHistory.pushState("Randomize Velocity");
+      showHudFeedback("🎲", "Randomized Velocities");
+    });
+
     // ── Piano Roll Zoom Controls ───────────────────────────────────
     document.getElementById('pr-zoom-slider')?.addEventListener('input', (e) => {
       applyPrZoom(parseFloat(e.target.value), true);
@@ -3523,7 +3876,11 @@ function init() {
         patternsData[trackId] = sequencer.patterns[trackId].map(n => ({
           note: n.note,
           step: n.step,
-          durationSteps: n.durationSteps
+          durationSteps: n.durationSteps,
+          velocity: n.velocity,
+          pan: n.pan,
+          pitch: n.pitch || 0,
+          probability: n.probability !== undefined ? n.probability : 100
         }))
       })
 
@@ -3675,10 +4032,18 @@ function init() {
             const noteName = row.dataset.note;
             const step = parseInt(noteEl.dataset.step) || 0;
             const duration = parseFloat(noteEl.dataset.duration || 1);
+            const velocity = parseFloat(noteEl.dataset.velocity || 1.0);
+            const pan = parseFloat(noteEl.dataset.pan || 0.0);
+            const pitch = parseInt(noteEl.dataset.pitch || 0);
+            const probability = parseInt(noteEl.dataset.probability || 100);
             dawClipboard.data.push({
               noteName,
               relStep: step - minStep,
-              duration
+              duration,
+              velocity,
+              pan,
+              pitch,
+              probability
             });
           }
         });
@@ -3796,11 +4161,11 @@ function init() {
 
         dawClipboard.data.forEach(item => {
           const finalStep = pasteStep + item.relStep;
-          const noteEl = createPrNote(currentTrackId, item.noteName, finalStep, item.duration, color);
+          const noteEl = createPrNote(currentTrackId, item.noteName, finalStep, item.duration, color, item.velocity, item.pan, item.pitch || 0, item.probability || 100);
           const row = grid.querySelector(`[data-note="${item.noteName}"]`);
           if (row) {
             row.appendChild(noteEl);
-            sequencer.addNoteToPattern(currentTrackId, item.noteName, finalStep, item.duration);
+            sequencer.addNoteToPattern(currentTrackId, item.noteName, finalStep, item.duration, item.velocity, item.pan, item.pitch || 0, item.probability || 100);
             
             const stepSeqRow = document.querySelector(`.seq-steps[data-instrument="${currentTrackId}"][data-note="${item.noteName}"]`);
             if (stepSeqRow) {
@@ -4079,7 +4444,14 @@ function init() {
       if (data.patterns) {
         Object.keys(data.patterns).forEach(trackId => {
           sequencer.patterns[trackId] = data.patterns[trackId].map(n => ({
-            ...n, scheduled: false, _scheduledAt: new Set(), sourceNode: null
+            ...n, 
+            velocity: n.velocity !== undefined ? n.velocity : 1.0,
+            pan: n.pan !== undefined ? n.pan : 0.0,
+            pitch: n.pitch !== undefined ? n.pitch : 0,
+            probability: n.probability !== undefined ? n.probability : 100,
+            scheduled: false, 
+            _scheduledAt: new Set(), 
+            sourceNode: null
           }))
         })
       }
@@ -4196,7 +4568,15 @@ function init() {
       { id: 'compressor', name: 'Compressor', icon: '🗜️' },
       { id: 'eq', name: 'Equalizer', icon: '🎚️' },
       { id: 'flanger', name: 'Flanger', icon: '🌀' },
-      { id: 'phaser', name: 'Phaser', icon: '🔮' }
+      { id: 'phaser', name: 'Phaser', icon: '🔮' },
+      { id: 'chorus', name: 'Chorus', icon: '🎤' },
+      { id: 'tremolo', name: 'Tremolo', icon: '📳' },
+      { id: 'autopan', name: 'Auto-Pan', icon: '↔️' },
+      { id: 'gate', name: 'Gate', icon: '🚪' },
+      { id: 'limiter', name: 'Limiter', icon: '🛡️' },
+      { id: 'ringmod', name: 'Ring Modulator', icon: '🔔' },
+      { id: 'bitcrusher', name: 'Bitcrusher', icon: '👾' },
+      { id: 'autowah', name: 'Auto-Wah', icon: '🐸' }
     ]
 
     const generators = [
@@ -4373,21 +4753,37 @@ function init() {
           let min = 0, max = 1;
           if (paramName === 'size') max = 5;
           if (paramName === 'decay') max = 10;
-          if (paramName === 'threshold') { min = -60; max = 0; }
+          if (paramName === 'threshold') { min = -100; max = 0; }
+          if (paramName === 'range') { min = -100; max = 0; }
           if (paramName === 'ratio') { min = 1; max = 20; }
-          if (paramName === 'attack') { min = 0.001; max = 0.5; }
-          if (paramName === 'release') { min = 0.01; max = 1.0; }
+          if (paramName === 'attack') { min = 0.001; max = 1.0; }
+          if (paramName === 'release') { min = 0.001; max = 1.0; }
           if (paramName === 'low') { min = -12; max = 12; }
           if (paramName === 'mid') { min = -12; max = 12; }
           if (paramName === 'high') { min = -12; max = 12; }
           if (paramName === 'feedback') { min = 0; max = 0.95; }
-          // Flanger
-          if (paramName === 'rate')  { min = 0.01; max = 10; }
-          if (paramName === 'depth' && fxObj.type === 'flanger') { min = 0.0001; max = 0.015; }
-          if (paramName === 'delay') { min = 0.001; max = 0.02; }
+          // Flanger & Chorus
+          if (paramName === 'rate')  { min = 0.01; max = 20; }
+          if (paramName === 'depth' && (fxObj.type === 'flanger' || fxObj.type === 'chorus')) { min = 0.0001; max = 0.015; }
+          if (paramName === 'delay') { min = 0.001; max = 0.08; }
           // Phaser
           if (paramName === 'depth' && fxObj.type === 'phaser')  { min = 0; max = 4000; }
-          if (paramName === 'baseFreq') { min = 100; max = 8000; }
+          if (paramName === 'baseFreq' && fxObj.type === 'phaser') { min = 100; max = 8000; }
+          // Limiter
+          if (paramName === 'ceiling') { min = -20; max = 0; }
+          // RingMod
+          if (paramName === 'freq') { min = 10; max = 2000; }
+          // Bitcrusher
+          if (paramName === 'bits') { min = 1; max = 16; }
+          if (paramName === 'normfreq') { min = 0.001; max = 1.0; }
+          // Auto-Wah
+          if (paramName === 'baseFreq' && fxObj.type === 'autowah') { min = 20; max = 2000; }
+          if (paramName === 'sensitivity') { min = 0.1; max = 10; }
+          if (paramName === 'Q') { min = 0.1; max = 20; }
+          // Delay time
+          if (paramName === 'time' && fxObj.type === 'delay') { min = 0.001; max = 5.0; }
+          // Distortion amount
+          if (paramName === 'amount' && fxObj.type === 'distortion') { min = 0; max = 1.0; }
           
           let currentVal = fxObj.params[paramName];
           
@@ -4395,10 +4791,16 @@ function init() {
             return -135 + ((v - min) / (max - min)) * 270;
           };
 
+          const formatParamVal = (val) => {
+            if (Math.abs(val) < 0.01 && val !== 0) return val.toFixed(4);
+            if (val % 1 === 0) return val.toFixed(0);
+            return val.toFixed(2);
+          };
+
           param.innerHTML = `
             <div class="plugin-knob" data-param="${paramName}" style="transform: rotate(${getAngle(currentVal)}deg); margin-bottom: 8px;"></div>
             <div class="plugin-label">${paramName.toUpperCase()}</div>
-            <div class="plugin-value" id="val-${fxObj.id}-${paramName}">${currentVal.toFixed(2)}</div>
+            <div class="plugin-value" id="val-${fxObj.id}-${paramName}">${formatParamVal(currentVal)}</div>
           `
           
           const knob = param.querySelector('.plugin-knob');
@@ -4421,7 +4823,7 @@ function init() {
             currentVal = Math.max(min, Math.min(max, currentVal + deltaY * step));
             
             knob.style.transform = `rotate(${getAngle(currentVal)}deg)`;
-            param.querySelector('.plugin-value').textContent = currentVal.toFixed(2);
+            param.querySelector('.plugin-value').textContent = formatParamVal(currentVal);
             
             if (fxObj.updateParams) {
               fxObj.updateParams({ [paramName]: currentVal });
@@ -4481,8 +4883,7 @@ function init() {
         isDragging = false
       })
     }
-
-    const openGeneratorWindows = new Map();
+const openGeneratorWindows = new Map();
 
     function showGeneratorWindow(trackId) {
       const track = engine.getTrack(trackId)
@@ -4814,11 +5215,26 @@ function init() {
       await openPreferencesModal();
     });
 
-    // Add Ctrl+, shortcut
+    // Add Ctrl+, shortcut and Piano Roll operations
     window.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === ',') {
         e.preventDefault();
         openPreferencesModal();
+      }
+      
+      if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        if (e.key.toLowerCase() === 'q' && document.getElementById('piano-roll-view')?.classList.contains('active')) {
+          e.preventDefault();
+          document.getElementById('pr-quantize-btn')?.click();
+        }
+        if (e.key.toLowerCase() === 'c' && document.getElementById('piano-roll-view')?.classList.contains('active')) {
+          e.preventDefault();
+          document.getElementById('pr-chop-btn')?.click();
+        }
+        if (e.key.toLowerCase() === 'l' && document.getElementById('piano-roll-view')?.classList.contains('active')) {
+          e.preventDefault();
+          document.getElementById('pr-legato-btn')?.click();
+        }
       }
     });
 

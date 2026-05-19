@@ -240,6 +240,11 @@
           <select id="pr-track-select" class="btn" style="padding: 2px 6px; font-size: 0.7rem;">
           </select>
           <div style="display:flex; align-items:center; gap:4px; margin-left: auto;">
+            <button id="pr-quantize-btn" class="btn" style="padding: 2px 6px; font-size: 0.7rem;" title="Quantize selected notes to grid (Q)">Quantize</button>
+            <button id="pr-chop-btn" class="btn" style="padding: 2px 6px; font-size: 0.7rem;" title="Chop selected notes to grid (C)">Chop</button>
+            <button id="pr-legato-btn" class="btn" style="padding: 2px 6px; font-size: 0.7rem;" title="Legato selected notes (L)">Legato</button>
+            <button id="pr-random-vel-btn" class="btn" style="padding: 2px 6px; font-size: 0.7rem;" title="Randomize Velocity for selected notes">Randomize Vel</button>
+            <div style="width: 1px; height: 16px; background: var(--border-color); margin: 0 4px;"></div>
             <span style="font-size: 0.7rem; color: var(--text-secondary);">ZOOM</span>
             <input type="range" id="pr-zoom-slider" class="zoom-slider" min="1" max="100" value="50">
             <span id="pr-zoom-label" style="font-size:0.65rem;color:var(--accent-color);font-family:'JetBrains Mono',monospace;min-width:36px;text-align:right;">100%</span>
@@ -441,6 +446,56 @@
       </div>
     </div>
   </div>
+
+  <!-- ======= NOTE SETTINGS MODAL ======= -->
+  <div id="note-settings-modal" class="settings-overlay" style="display:none; z-index: 10000;">
+    <div class="settings-panel" style="max-width: 250px; width: 90%;">
+      <div class="settings-header" style="border-bottom: 1px solid var(--border-color);">
+        <span class="settings-title">Note Settings</span>
+        <button class="settings-close" id="note-settings-close-btn">✕</button>
+      </div>
+      <div class="settings-body" style="padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; justify-items: center; align-items: center;">
+        
+        <!-- Velocity Knob -->
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <span style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Velocity</span>
+          <div class="ns-knob" id="nsk-vel" data-min="0" data-max="1.5" data-value="1.0" data-step="0.01" style="width: 38px; height: 38px; border-radius: 50%; background: #25252b; border: 2px solid var(--border-color); position: relative; cursor: ns-resize; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
+            <div class="knob-indicator" style="position: absolute; top: 3px; left: 50%; width: 2px; height: 8px; background: var(--accent-color); transform-origin: bottom center; transform: translateX(-50%) rotate(0deg);"></div>
+          </div>
+          <span id="ns-vel-val" style="color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;">1.00</span>
+        </div>
+
+        <!-- Pan Knob -->
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <span style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Pan</span>
+          <div class="ns-knob" id="nsk-pan" data-min="-1" data-max="1" data-value="0.0" data-step="0.01" style="width: 38px; height: 38px; border-radius: 50%; background: #25252b; border: 2px solid var(--border-color); position: relative; cursor: ns-resize; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
+            <div class="knob-indicator" style="position: absolute; top: 3px; left: 50%; width: 2px; height: 8px; background: var(--accent-color); transform-origin: bottom center; transform: translateX(-50%) rotate(0deg);"></div>
+          </div>
+          <span id="ns-pan-val" style="color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;">C</span>
+        </div>
+
+        <!-- Pitch Knob -->
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <span style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Pitch</span>
+          <div class="ns-knob" id="nsk-pitch" data-min="-24" data-max="24" data-value="0" data-step="1" style="width: 38px; height: 38px; border-radius: 50%; background: #25252b; border: 2px solid var(--border-color); position: relative; cursor: ns-resize; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
+            <div class="knob-indicator" style="position: absolute; top: 3px; left: 50%; width: 2px; height: 8px; background: var(--accent-color); transform-origin: bottom center; transform: translateX(-50%) rotate(0deg);"></div>
+          </div>
+          <span id="ns-pitch-val" style="color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;">0 st</span>
+        </div>
+
+        <!-- Probability Knob -->
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <span style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Prob</span>
+          <div class="ns-knob" id="nsk-prob" data-min="0" data-max="100" data-value="100" data-step="1" style="width: 38px; height: 38px; border-radius: 50%; background: #25252b; border: 2px solid var(--border-color); position: relative; cursor: ns-resize; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
+            <div class="knob-indicator" style="position: absolute; top: 3px; left: 50%; width: 2px; height: 8px; background: var(--accent-color); transform-origin: bottom center; transform: translateX(-50%) rotate(0deg);"></div>
+          </div>
+          <span id="ns-prob-val" style="color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;">100%</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   
   <!-- ======= HELP MODAL ======= -->
   <div id="help-modal" class="settings-overlay" style="display:none;">

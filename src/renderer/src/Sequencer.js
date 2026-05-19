@@ -133,11 +133,11 @@ export class Sequencer {
     this.stopActivePatternNotes(patternClip.trackId);
   }
 
-  addNoteToPattern(trackId, note, step, durationSteps = 1) {
+  addNoteToPattern(trackId, note, step, durationSteps = 1, velocity = 1.0, pan = 0.0, pitch = 0, probability = 100) {
     if (!this.patterns[trackId]) this.patterns[trackId] = [];
     // Remove existing note at same position to avoid duplicates
     this.patterns[trackId] = this.patterns[trackId].filter(n => !(n.note === note && n.step === step));
-    this.patterns[trackId].push({ note, step, durationSteps, scheduled: false, sourceNode: null });
+    this.patterns[trackId].push({ note, step, durationSteps, velocity, pan, pitch, probability, scheduled: false, sourceNode: null });
   }
 
   removeNoteFromPattern(trackId, note, step) {
@@ -356,9 +356,16 @@ export class Sequencer {
             if (!noteObj._scheduledAt) noteObj._scheduledAt = new Set();
             noteObj._scheduledAt.add(offset.startTime);
 
+            // Check Probability (0-100%)
+            const prob = noteObj.probability !== undefined ? noteObj.probability : 100;
+            if (prob < 100 && Math.random() * 100 > prob) {
+              return; // skip trigger
+            }
+
             const exactTime = this.startTime + noteAbsTime;
             const duration = noteObj.durationSteps * secondsPerStep;
-            const source = engine.playNote(trackId, noteObj.note, exactTime, duration);
+            const pitch = noteObj.pitch !== undefined ? noteObj.pitch : 0;
+            const source = engine.playNote(trackId, noteObj.note, exactTime, duration, noteObj.velocity, noteObj.pan, pitch);
             if (source) {
               const srcItem = { trackId, sourceNode: source };
               if (!this.activePatternSources) this.activePatternSources = [];

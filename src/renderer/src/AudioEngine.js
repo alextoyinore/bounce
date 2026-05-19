@@ -360,6 +360,324 @@ function createEffectNodes(ctx, type) {
       }
     };
   }
+  else if (type === 'chorus') {
+    fxObj.name = 'Chorus';
+    inputNode = ctx.createGain();
+    outputNode = ctx.createGain();
+    const dryNode = ctx.createGain();
+    const wetNode = ctx.createGain();
+
+    const delayNodeL = ctx.createDelay(0.1);
+    const delayNodeR = ctx.createDelay(0.1);
+    const lfo = ctx.createOscillator();
+    const lfoGainL = ctx.createGain();
+    const lfoGainR = ctx.createGain();
+
+    const panL = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    const panR = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (panL) panL.pan.value = -1;
+    if (panR) panR.pan.value = 1;
+
+    lfo.type = 'sine';
+
+    inputNode.connect(dryNode);
+    dryNode.connect(outputNode);
+
+    inputNode.connect(delayNodeL);
+    inputNode.connect(delayNodeR);
+
+    if (panL && panR) {
+      delayNodeL.connect(panL).connect(wetNode);
+      delayNodeR.connect(panR).connect(wetNode);
+    } else {
+      delayNodeL.connect(wetNode);
+      delayNodeR.connect(wetNode);
+    }
+    wetNode.connect(outputNode);
+
+    lfo.connect(lfoGainL);
+    lfoGainL.connect(delayNodeL.delayTime);
+
+    const inverter = ctx.createGain();
+    inverter.gain.value = -1;
+    lfo.connect(inverter).connect(lfoGainR);
+    lfoGainR.connect(delayNodeR.delayTime);
+
+    params = { mix: 0.5, rate: 1.5, depth: 0.002, delay: 0.025 };
+    dryNode.gain.value = 1 - params.mix;
+    wetNode.gain.value = params.mix;
+    delayNodeL.delayTime.value = params.delay;
+    delayNodeR.delayTime.value = params.delay;
+    lfo.frequency.value = params.rate;
+    lfoGainL.gain.value = params.depth;
+    lfoGainR.gain.value = params.depth;
+    lfo.start();
+
+    updateParams = (newParams) => {
+      if (newParams.mix !== undefined) {
+        params.mix = newParams.mix;
+        dryNode.gain.value = 1 - params.mix;
+        wetNode.gain.value = params.mix;
+      }
+      if (newParams.rate !== undefined) {
+        params.rate = newParams.rate;
+        lfo.frequency.setValueAtTime(params.rate, ctx.currentTime);
+      }
+      if (newParams.depth !== undefined) {
+        params.depth = newParams.depth;
+        lfoGainL.gain.setValueAtTime(params.depth, ctx.currentTime);
+        lfoGainR.gain.setValueAtTime(params.depth, ctx.currentTime);
+      }
+      if (newParams.delay !== undefined) {
+        params.delay = newParams.delay;
+        delayNodeL.delayTime.setValueAtTime(params.delay, ctx.currentTime);
+        delayNodeR.delayTime.setValueAtTime(params.delay, ctx.currentTime);
+      }
+    };
+  }
+  else if (type === 'tremolo') {
+    fxObj.name = 'Tremolo';
+    inputNode = ctx.createGain();
+    const gainNode = ctx.createGain();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+
+    inputNode.connect(gainNode);
+    outputNode = gainNode;
+
+    lfo.type = 'sine';
+    lfo.connect(lfoGain);
+    lfoGain.connect(gainNode.gain);
+
+    params = { rate: 5.0, depth: 0.5 };
+    lfo.frequency.value = params.rate;
+    lfoGain.gain.value = params.depth * 0.5;
+    gainNode.gain.value = 1.0 - (params.depth * 0.5); 
+    lfo.start();
+
+    updateParams = (newParams) => {
+      if (newParams.rate !== undefined) {
+        params.rate = newParams.rate;
+        lfo.frequency.setValueAtTime(params.rate, ctx.currentTime);
+      }
+      if (newParams.depth !== undefined) {
+        params.depth = newParams.depth;
+        lfoGain.gain.setValueAtTime(params.depth * 0.5, ctx.currentTime);
+        gainNode.gain.setValueAtTime(1.0 - (params.depth * 0.5), ctx.currentTime);
+      }
+    };
+  }
+  else if (type === 'autopan') {
+    fxObj.name = 'Auto-Pan';
+    inputNode = ctx.createGain();
+    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+
+    inputNode.connect(panner);
+    outputNode = panner;
+
+    if (ctx.createStereoPanner) {
+      lfo.connect(lfoGain).connect(panner.pan);
+      lfo.type = 'sine';
+      lfo.start();
+    }
+
+    params = { rate: 2.0, depth: 0.8 };
+    lfo.frequency.value = params.rate;
+    lfoGain.gain.value = params.depth;
+
+    updateParams = (newParams) => {
+      if (newParams.rate !== undefined) {
+        params.rate = newParams.rate;
+        lfo.frequency.setValueAtTime(params.rate, ctx.currentTime);
+      }
+      if (newParams.depth !== undefined) {
+        params.depth = newParams.depth;
+        lfoGain.gain.setValueAtTime(params.depth, ctx.currentTime);
+      }
+    };
+  }
+  else if (type === 'gate') {
+    fxObj.name = 'Gate';
+    inputNode = ctx.createGain();
+    const gateGain = ctx.createGain();
+    const analyser = ctx.createAnalyser();
+    
+    inputNode.connect(gateGain);
+    inputNode.connect(analyser);
+    outputNode = gateGain;
+
+    params = { threshold: -40.0, range: -60.0, attack: 0.05, release: 0.1 };
+    analyser.fftSize = 256;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Float32Array(bufferLength);
+    
+    const interval = setInterval(() => {
+      analyser.getFloatTimeDomainData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i] * dataArray[i];
+      }
+      const rms = Math.sqrt(sum / bufferLength);
+      const db = rms > 0 ? 20 * Math.log10(rms) : -100;
+      
+      const targetGain = db > params.threshold ? 1.0 : Math.pow(10, params.range / 20);
+      const timeConstant = db > params.threshold ? params.attack : params.release;
+      gateGain.gain.setTargetAtTime(targetGain, ctx.currentTime, timeConstant);
+    }, 20);
+
+    fxObj.cleanup = () => clearInterval(interval);
+
+    updateParams = (newParams) => {
+      if (newParams.threshold !== undefined) params.threshold = newParams.threshold;
+      if (newParams.range !== undefined) params.range = newParams.range;
+      if (newParams.attack !== undefined) params.attack = newParams.attack;
+      if (newParams.release !== undefined) params.release = newParams.release;
+    };
+  }
+  else if (type === 'limiter') {
+    fxObj.name = 'Limiter';
+    const compressor = ctx.createDynamicsCompressor();
+    inputNode = compressor;
+    outputNode = compressor;
+
+    params = { ceiling: -0.1, release: 0.1 };
+    compressor.threshold.value = params.ceiling;
+    compressor.ratio.value = 20.0;
+    compressor.attack.value = 0.001;
+    compressor.release.value = params.release;
+
+    updateParams = (newParams) => {
+      if (newParams.ceiling !== undefined) {
+        params.ceiling = newParams.ceiling;
+        compressor.threshold.setValueAtTime(params.ceiling, ctx.currentTime);
+      }
+      if (newParams.release !== undefined) {
+        params.release = newParams.release;
+        compressor.release.setValueAtTime(params.release, ctx.currentTime);
+      }
+    };
+  }
+  else if (type === 'ringmod') {
+    fxObj.name = 'Ring Modulator';
+    inputNode = ctx.createGain();
+    outputNode = ctx.createGain();
+    const dryNode = ctx.createGain();
+    const wetNode = ctx.createGain();
+    const ringGain = ctx.createGain();
+    ringGain.gain.value = 0;
+
+    const carrier = ctx.createOscillator();
+    carrier.type = 'sine';
+
+    inputNode.connect(dryNode);
+    inputNode.connect(ringGain);
+    ringGain.connect(wetNode);
+    
+    carrier.connect(ringGain.gain);
+    dryNode.connect(outputNode);
+    wetNode.connect(outputNode);
+
+    params = { mix: 0.5, freq: 440 };
+    dryNode.gain.value = 1 - params.mix;
+    wetNode.gain.value = params.mix;
+    carrier.frequency.value = params.freq;
+    carrier.start();
+
+    updateParams = (newParams) => {
+      if (newParams.mix !== undefined) {
+        params.mix = newParams.mix;
+        dryNode.gain.value = 1 - params.mix;
+        wetNode.gain.value = params.mix;
+      }
+      if (newParams.freq !== undefined) {
+        params.freq = newParams.freq;
+        carrier.frequency.setValueAtTime(params.freq, ctx.currentTime);
+      }
+    };
+  }
+  else if (type === 'bitcrusher') {
+    fxObj.name = 'Bitcrusher';
+    const bufferSize = 4096;
+    const processor = ctx.createScriptProcessor(bufferSize, 2, 2);
+    inputNode = processor;
+    outputNode = processor;
+
+    params = { bits: 8, normfreq: 0.1 };
+
+    let phaser = 0;
+    let lastValueL = 0;
+    let lastValueR = 0;
+
+    processor.onaudioprocess = (e) => {
+      const inputL = e.inputBuffer.getChannelData(0);
+      const inputR = e.inputBuffer.getChannelData(1);
+      const outputL = e.outputBuffer.getChannelData(0);
+      const outputR = e.outputBuffer.getChannelData(1);
+
+      const step = Math.pow(0.5, params.bits);
+      const phaserStep = params.normfreq;
+
+      for (let i = 0; i < inputL.length; i++) {
+        phaser += phaserStep;
+        if (phaser >= 1.0) {
+          phaser -= 1.0;
+          lastValueL = step * Math.round(inputL[i] / step);
+          lastValueR = step * Math.round(inputR[i] / step);
+        }
+        outputL[i] = lastValueL;
+        outputR[i] = lastValueR;
+      }
+    };
+
+    updateParams = (newParams) => {
+      if (newParams.bits !== undefined) params.bits = newParams.bits;
+      if (newParams.normfreq !== undefined) params.normfreq = newParams.normfreq;
+    };
+  }
+  else if (type === 'autowah') {
+    fxObj.name = 'Auto-Wah';
+    inputNode = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    
+    inputNode.connect(filter);
+    inputNode.connect(analyser);
+    outputNode = filter;
+
+    params = { baseFreq: 300, sensitivity: 3.0, Q: 2.0 };
+    filter.Q.value = params.Q;
+    filter.frequency.value = params.baseFreq;
+
+    const dataArray = new Float32Array(analyser.frequencyBinCount);
+    
+    const interval = setInterval(() => {
+      analyser.getFloatTimeDomainData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i] * dataArray[i];
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+      
+      const targetFreq = params.baseFreq + (rms * params.sensitivity * 5000);
+      filter.frequency.setTargetAtTime(Math.min(10000, targetFreq), ctx.currentTime, 0.05);
+    }, 20);
+
+    fxObj.cleanup = () => clearInterval(interval);
+
+    updateParams = (newParams) => {
+      if (newParams.baseFreq !== undefined) params.baseFreq = newParams.baseFreq;
+      if (newParams.sensitivity !== undefined) params.sensitivity = newParams.sensitivity;
+      if (newParams.Q !== undefined) {
+        params.Q = newParams.Q;
+        filter.Q.setValueAtTime(params.Q, ctx.currentTime);
+      }
+    };
+  }
   else {
     fxObj.name = type;
     inputNode = ctx.createGain();
@@ -522,6 +840,7 @@ class Track {
     const idx = this.effects.findIndex(fx => fx.id === id);
     if (idx !== -1) {
       const fx = this.effects[idx];
+      if (fx.cleanup) fx.cleanup();
       if (fx.inputNode) fx.inputNode.disconnect();
       if (fx.outputNode) fx.outputNode.disconnect();
       if (fx.node) fx.node.disconnect();
@@ -611,6 +930,7 @@ class AudioEngine {
     const idx = this.effects.findIndex(fx => fx.id === id);
     if (idx !== -1) {
       const fx = this.effects[idx];
+      if (fx.cleanup) fx.cleanup();
       if (fx.inputNode) fx.inputNode.disconnect();
       if (fx.outputNode) fx.outputNode.disconnect();
       if (fx.node) fx.node.disconnect();
@@ -724,16 +1044,26 @@ class AudioEngine {
     this.previewSource.start();
   }
 
-  playNote(trackId, noteName, time, duration = 0) {
+  playNote(trackId, noteName, time, duration = 0, velocity = 1.0, pan = 0.0, pitchOffset = 0) {
     const track = this.getTrack(trackId);
     if (!track) return null;
     
     const gen = track.generator || { type: 'sampler', params: { attack: 0.005, decay: 0.1, sustain: 1.0, release: 0.1, cutoff: 20000, resonance: 1.0, pitch: 0 } };
-    const frequency = parseNoteToFrequency(noteName);
-    const midiNote = parseNoteToMidi(noteName);
+    const midiNote = parseNoteToMidi(noteName) + pitchOffset;
+    const frequency = 440 * Math.pow(2, (midiNote - 69) / 12);
     const now = Math.max(time, this.ctx.currentTime);
     const noteDuration = duration > 0 ? duration : 0.2;
     
+    // Per-note Panning
+    let pannerNode = null;
+    if (this.ctx.createStereoPanner && pan !== 0.0) {
+      pannerNode = this.ctx.createStereoPanner();
+      pannerNode.pan.value = pan;
+      pannerNode.connect(track.inputNode);
+    }
+    
+    const destinationNode = pannerNode || track.inputNode;
+
     if (gen.type === 'sampler') {
       if (!track.instrumentBuffer) return null;
       const pitchOffset = gen.params.pitch || 0;
@@ -757,16 +1087,20 @@ class AudioEngine {
       
       source.connect(filter);
       filter.connect(envelope);
-      envelope.connect(track.inputNode);
+      envelope.connect(destinationNode);
+      
+      // Apply velocity scaling to the sustain level and max level
+      const peakLevel = velocity;
+      const sustainLevel = sustain * velocity;
       
       envelope.gain.setValueAtTime(0, now);
-      envelope.gain.linearRampToValueAtTime(1.0, now + attack);
-      envelope.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+      envelope.gain.linearRampToValueAtTime(peakLevel, now + attack);
+      envelope.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
       
       source.start(now);
       
       const releaseTime = now + noteDuration;
-      envelope.gain.setValueAtTime(sustain, releaseTime);
+      envelope.gain.setValueAtTime(sustainLevel, releaseTime);
       envelope.gain.linearRampToValueAtTime(0, releaseTime + release);
       source.stop(releaseTime + release);
       return source;
@@ -832,19 +1166,22 @@ class AudioEngine {
       osc.connect(synthGain);
       synthGain.connect(filter);
       filter.connect(envelope);
-      envelope.connect(track.inputNode);
+      envelope.connect(destinationNode);
       
-      // Amplitude envelope
+      // Amplitude envelope with velocity
+      const peakLevel = 0.4 * velocity;
+      const sustainLevel = sustain * 0.4 * velocity;
+      
       envelope.gain.setValueAtTime(0, now);
-      envelope.gain.linearRampToValueAtTime(0.4, now + attack); // Keep levels safe
-      envelope.gain.linearRampToValueAtTime(sustain * 0.4, now + attack + decay);
+      envelope.gain.linearRampToValueAtTime(peakLevel, now + attack); // Keep levels safe
+      envelope.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
       
       osc.start(now);
       if (subOsc) subOsc.start(now);
       if (osc2) osc2.start(now);
       
       const releaseTime = now + noteDuration;
-      envelope.gain.setValueAtTime(sustain * 0.4, releaseTime);
+      envelope.gain.setValueAtTime(sustainLevel, releaseTime);
       envelope.gain.linearRampToValueAtTime(0, releaseTime + release);
       
       osc.stop(releaseTime + release);
@@ -888,18 +1225,21 @@ class AudioEngine {
       
       // Carrier -> Envelope -> inputNode
       carrier.connect(envelope);
-      envelope.connect(track.inputNode);
+      envelope.connect(destinationNode);
       
-      // Amplitude ADSR
+      // Amplitude ADSR with velocity
+      const peakLevel = 0.3 * velocity;
+      const sustainLevel = sustain * 0.3 * velocity;
+
       envelope.gain.setValueAtTime(0, now);
-      envelope.gain.linearRampToValueAtTime(0.3, now + attack);
-      envelope.gain.linearRampToValueAtTime(sustain * 0.3, now + attack + decay);
+      envelope.gain.linearRampToValueAtTime(peakLevel, now + attack);
+      envelope.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
       
       carrier.start(now);
       modulator.start(now);
       
       const releaseTime = now + noteDuration;
-      envelope.gain.setValueAtTime(sustain * 0.3, releaseTime);
+      envelope.gain.setValueAtTime(sustainLevel, releaseTime);
       envelope.gain.linearRampToValueAtTime(0, releaseTime + release);
       
       carrier.stop(releaseTime + release);
