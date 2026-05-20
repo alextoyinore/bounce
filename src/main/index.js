@@ -2,9 +2,10 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join, extname } from 'path'
 import * as fs from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import squirrelStartup from 'electron-squirrel-startup'
 
 // Required for @electron-forge/maker-squirrel on Windows
-if (require('electron-squirrel-startup')) app.quit()
+if (squirrelStartup) app.quit()
 
 // Icon path — plain path.join replaces the ?asset Vite query (not supported in Forge)
 const icon = join(__dirname, '../../resources/icon.png')
@@ -49,8 +50,8 @@ if (!gotTheLock) {
 function createWindow() {
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    width: 1150,
-    height: 650,
+    width: 1250,
+    height: 720,
     show: false,
     frame: false,
     autoHideMenuBar: true,
@@ -265,7 +266,7 @@ app.whenReady().then(() => {
     if (is.dev) {
       return join(app.getAppPath(), 'src/renderer/public/audio')
     }
-    return join(process.resourcesPath, 'audio')
+    return join(app.getAppPath(), '.vite/renderer/main_window/audio')
   })
 
   ipcMain.handle('app:installSoundPack', async () => {
