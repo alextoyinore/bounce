@@ -11,7 +11,7 @@ export default defineConfig({
   base: './',
   publicDir: 'public',
   build: {
-    outDir: resolve(__dirname, '.vite/renderer/main_window'),
+    outDir: '../../.vite/renderer/main_window',
     emptyOutDir: true
   }
 })

@@ -551,6 +551,22 @@ function init() {
       const allLanes = Array.from(document.querySelectorAll('.track-lane'));
       const clipMoves = [];
       
+      let minStartTime = Infinity;
+      selectedClips.forEach(clipEl => {
+        const isPattern = clipEl.classList.contains('pattern-clip');
+        const seqClip = isPattern 
+          ? sequencer.patternClips.find(c => c.uiElement === clipEl)
+          : sequencer.clips.find(c => c.uiElement === clipEl);
+        if (seqClip && seqClip.startTime < minStartTime) {
+          minStartTime = seqClip.startTime;
+        }
+      });
+
+      let clampedTimeDelta = timeDelta;
+      if (minStartTime + timeDelta < 0) {
+        clampedTimeDelta = -minStartTime;
+      }
+      
       selectedClips.forEach(clipEl => {
         const isPattern = clipEl.classList.contains('pattern-clip');
         const seqClip = isPattern 
@@ -560,7 +576,7 @@ function init() {
         if (!seqClip) return;
         
         const currentStartTime = seqClip.startTime;
-        let newStartTime = currentStartTime + timeDelta;
+        let newStartTime = currentStartTime + clampedTimeDelta;
         if (newStartTime < 0) newStartTime = 0;
         newStartTime = sequencer.snapTimeToGrid(newStartTime);
         
@@ -781,6 +797,19 @@ function init() {
 
           const notesArray = Array.from(selectedNotes);
           
+          let minStep = Infinity;
+          notesArray.forEach(noteEl => {
+            const step = parseInt(noteEl.dataset.step) || 0;
+            if (step < minStep) {
+              minStep = step;
+            }
+          });
+
+          let clampedStepDelta = stepDelta;
+          if (minStep + stepDelta < 0) {
+            clampedStepDelta = -minStep;
+          }
+
           notesArray.forEach(noteEl => {
             const row = noteEl.closest('.pr-row');
             if (row) {
@@ -802,7 +831,7 @@ function init() {
               const noteName = row.dataset.note;
               const oldStep = parseInt(noteEl.dataset.step);
               const duration = parseFloat(noteEl.dataset.duration || 1);
-              const newStep = Math.max(0, oldStep + stepDelta);
+              const newStep = Math.max(0, oldStep + clampedStepDelta);
 
               noteEl.dataset.step = newStep;
               noteEl.style.left = `${newStep * getPrStepPx() + 1}px`;
@@ -1585,7 +1614,13 @@ function init() {
           clipDragState.clip.style.width = `${newDur * sequencer.pxPerSecond}px`;
           clipDragState.clip.dataset.duration = newDur;
         } else if (clipDragState.type === 'move') {
-          const deltaX = e.clientX - clipDragState.startX;
+          let deltaX = e.clientX - clipDragState.startX;
+          
+          // Clamp deltaX based on the leftmost item to prevent collapsing at the left edge
+          const minStartLeft = Math.min(...clipDragState.items.map(item => item.startLeft));
+          if (minStartLeft + deltaX < 0) {
+            deltaX = -minStartLeft;
+          }
           
           const elementsUnder = document.elementsFromPoint(e.clientX, e.clientY);
           const newLaneUnderMouse = elementsUnder.find(el => el.classList.contains('track-lane'));
@@ -1597,7 +1632,7 @@ function init() {
           }
 
           clipDragState.items.forEach(item => {
-            let newLeft = Math.max(0, item.startLeft + deltaX);
+            let newLeft = item.startLeft + deltaX;
             const timeInSeconds = newLeft / sequencer.pxPerSecond;
             const snappedTime = sequencer.snapTimeToGrid(timeInSeconds);
             newLeft = snappedTime * sequencer.pxPerSecond;
@@ -4037,8 +4072,15 @@ function init() {
           prDragState.noteElement.style.width = `${newDur * getPrStepPx() - 3}px`;
           prDragState.noteElement.dataset.duration = newDur;
         } else if (prDragState.type === 'move') {
-          const deltaX = e.clientX - prDragState.startX;
+          let deltaX = e.clientX - prDragState.startX;
           const deltaY = e.clientY - prDragState.startY;
+          
+          // Clamp deltaX based on the leftmost note to prevent collapsing at step = 0
+          const minStartStep = Math.min(...prDragState.items.map(item => item.startStep));
+          const minDeltaSteps = -minStartStep;
+          if (deltaX / getPrStepPx() < minDeltaSteps) {
+            deltaX = minDeltaSteps * getPrStepPx();
+          }
           
           const elementsUnder = document.elementsFromPoint(e.clientX, e.clientY);
           const newRowUnderMouse = elementsUnder.find(el => el.classList.contains('pr-row'));
@@ -4051,7 +4093,7 @@ function init() {
           }
 
           prDragState.items.forEach(item => {
-            const newStep = Math.max(0, Math.round(item.startStep + deltaX / getPrStepPx()));
+            const newStep = Math.round(item.startStep + deltaX / getPrStepPx());
             item.el.style.left = `${newStep * getPrStepPx() + 1}px`;
             item.el.dataset.step = newStep;
             
