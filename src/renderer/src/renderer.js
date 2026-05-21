@@ -10,6 +10,7 @@ function init() {
     let currentProjectPath = null
     let currentTrackId = 'kick' // Initialize with a default
     let lcdDisplayMode = 'bars' // 'bars' | 'time'
+    const instrumentBufferCache = new Map() // filePath → AudioBuffer, persists across undo/redo
     
     // OS File Association listener
     if (window.api && window.api.onOpenFile) {
@@ -125,7 +126,7 @@ function init() {
         const _seqST = _seqContainer?.scrollTop || 0
         const _prSL = _prViewport?.scrollLeft || 0
         const _prST = _prViewport?.scrollTop || 0
-
+ 
         const current = serializeProject()
         const previous = this.undoStack.pop()
         this.redoStack.push({ actionName: previous.actionName, state: current })
@@ -133,7 +134,7 @@ function init() {
         try {
           isRestoringHistory = true
           const data = JSON.parse(previous.state)
-          await loadProject(data)
+          await patchProject(data)
           isRestoringHistory = false
           showToast(`Undo: ${previous.actionName}`)
           // Restore view state after project reload
@@ -166,7 +167,7 @@ function init() {
         const _seqST = _seqContainer?.scrollTop || 0
         const _prSL = _prViewport?.scrollLeft || 0
         const _prST = _prViewport?.scrollTop || 0
-
+ 
         const next = this.redoStack.pop()
         const current = serializeProject()
         this.undoStack.push({ actionName: next.actionName, state: current })
@@ -174,7 +175,7 @@ function init() {
         try {
           isRestoringHistory = true
           const data = JSON.parse(next.state)
-          await loadProject(data)
+          await patchProject(data)
           isRestoringHistory = false
           showToast(`Redo: ${next.actionName}`)
           // Restore view state after project reload
@@ -2676,9 +2677,17 @@ function init() {
 
       async function loadInstrumentToTrack(tid, fileInfo) {
         try {
-          const buffer = await window.api.readFile(fileInfo.path);
-          if (buffer) {
-            const audioBuffer = await engine.decodeAudioData(buffer.buffer);
+          let audioBuffer = instrumentBufferCache.get(fileInfo.path);
+          if (!audioBuffer) {
+            const buffer = await window.api.readFile(fileInfo.path);
+            if (buffer) {
+              // Safe TypedArray ArrayBuffer copy
+              const arrayBuf = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+              audioBuffer = await engine.decodeAudioData(arrayBuf);
+              instrumentBufferCache.set(fileInfo.path, audioBuffer);
+            }
+          }
+          if (audioBuffer) {
             const trackObj = engine.getTrack(tid);
             if (trackObj) {
               trackObj.instrumentBuffer = audioBuffer;
@@ -5275,6 +5284,426 @@ function init() {
       
       const stepCountSelect = document.getElementById('step-count-select')
       if (stepCountSelect) stepCountSelect.dispatchEvent(new Event('change'))
+    }
+
+    function removeTrackSilently(trackId) {
+      engine.removeTrack(trackId);
+      delete sequencer.patterns[trackId];
+      sequencer.clips = sequencer.clips.filter(c => c.trackId !== trackId);
+      // Clean up pattern clips
+      sequencer.patternClips.filter(pc => pc.trackId === trackId).forEach(pc => {
+        if (pc.uiElement) pc.uiElement.remove();
+      });
+      sequencer.patternClips = sequencer.patternClips.filter(pc => pc.trackId !== trackId);
+      
+      const ui = trackUIMap[trackId];
+      if (ui) {
+        if (ui.headers && ui.headers[0]) {
+          ui.headers[0].headerEl?.remove();
+          ui.headers[0].laneEl?.remove();
+        }
+        if (ui.autoLanes && ui.autoLanes[0]) {
+          ui.autoLanes[0].labelEl?.remove();
+          ui.autoLanes[0].laneEl?.remove();
+        }
+        if (ui.mixers && ui.mixers[0]) {
+          ui.mixers[0].channelEl?.remove();
+        }
+        if (ui.seqRows && ui.seqRows[0]) {
+          ui.seqRows[0].remove();
+        }
+      }
+      const prSelect = document.getElementById('pr-track-select');
+      if (prSelect) {
+        const opt = Array.from(prSelect.options).find(o => o.value === trackId);
+        if (opt) opt.remove();
+      }
+      delete trackUIMap[trackId];
+    }
+
+    async function patchProject(data) {
+      const savedTrackId = currentTrackId
+      const openGeneratorTrackIds = Array.from(openGeneratorWindows.keys())
+
+      // Reset transport stop so it doesn't play audio during patching
+      const wasPlaying = sequencer.isPlaying
+      if (wasPlaying) {
+        sequencer.stop()
+      }
+
+      const noteSettingsModal = document.getElementById('note-settings-modal')
+      if (noteSettingsModal) noteSettingsModal.style.display = 'none'
+
+      // 1. BPM / time sig
+      if (data.bpm !== undefined && sequencer.bpm !== data.bpm) {
+        sequencer.bpm = data.bpm
+        const bd = document.getElementById('bpm-display')
+        if (bd) bd.textContent = data.bpm.toFixed(1)
+      }
+      if (data.timeSignature) {
+        const currentTSString = `${sequencer.timeSignature?.numerator}/${sequencer.timeSignature?.denominator}`
+        const targetTSString = `${data.timeSignature.numerator}/${data.timeSignature.denominator}`
+        if (currentTSString !== targetTSString) {
+          sequencer.timeSignature = data.timeSignature
+          const ts = document.getElementById('time-sig-display')
+          if (ts) ts.value = targetTSString
+        }
+      }
+
+      // 2. Track Diffing
+      const currentTrackIds = Object.keys(trackUIMap);
+      const targetTracks = data.tracks || [];
+      const targetTrackIds = targetTracks.map(t => t.id);
+
+      // (a) Delete tracks not in target
+      for (const trackId of currentTrackIds) {
+        if (!targetTrackIds.includes(trackId)) {
+          removeTrackSilently(trackId);
+        }
+      }
+
+      // (b) Create or update tracks
+      for (const track of targetTracks) {
+        if (!trackUIMap[track.id]) {
+          createTrackUI(track.id, track.name, track.color);
+        }
+        
+        // Update track properties
+        const engineTrack = engine.getTrack(track.id)
+        if (engineTrack) {
+          // Volume
+          if (track.volume !== undefined && engineTrack.baseVolume !== track.volume) {
+            engineTrack.baseVolume = track.volume
+            const knobVal = (track.volume / 1.5) * 100
+            if (trackUIMap[track.id] && trackUIMap[track.id].updateKnob) {
+              trackUIMap[track.id].updateKnob(knobVal)
+            }
+          }
+          // Panning
+          if (track.pan !== undefined && engineTrack.pan !== track.pan) {
+            engineTrack.pan = track.pan
+            const panPercent = (track.pan + 1) * 50
+            if (trackUIMap[track.id] && trackUIMap[track.id].updatePan) {
+              trackUIMap[track.id].updatePan(panPercent)
+            }
+          }
+          // Mute / Solo
+          if (track.isMuted !== undefined && engineTrack.isMuted !== track.isMuted) {
+            engineTrack.isMuted = track.isMuted
+            syncTrackUI(track.id, 'mute', track.isMuted)
+          }
+          if (track.isSoloed !== undefined && engineTrack.isSoloed !== track.isSoloed) {
+            engineTrack.isSoloed = track.isSoloed
+            if (track.isSoloed) {
+              engine.soloedTracks.add(track.id)
+            } else {
+              engine.soloedTracks.delete(track.id)
+            }
+            syncTrackUI(track.id, 'solo', track.isSoloed)
+          }
+          // Generator settings
+          if (track.generator && track.generator.params) {
+            engineTrack.generator = {
+              type: track.generator.type || 'sampler',
+              params: { ...engineTrack.generator.params, ...track.generator.params }
+            }
+          }
+
+          // Instrument buffer - cached to avoid network/disk latency
+          if (track.instrumentPath) {
+            if (engineTrack._instrumentPath !== track.instrumentPath) {
+              try {
+                const fileName = track.instrumentPath.split(/[\\/]/).pop()
+                const sampleObj = { tid: track.id, name: fileName, path: track.instrumentPath }
+                if (trackUIMap[track.id] && trackUIMap[track.id].loadInstrument) {
+                  await trackUIMap[track.id].loadInstrument(track.id, sampleObj)
+                }
+              } catch(e) { console.warn("Failed to load cached instrument during restore:", track.id, e) }
+            }
+          }
+
+          // Effects Chain Diffing
+          const targetEffects = track.effects || []
+          const currentEffects = engineTrack.effects || []
+
+          const fxDiffers = targetEffects.length !== currentEffects.length || 
+            targetEffects.some((fx, i) => !currentEffects[i] || currentEffects[i].id !== fx.id || currentEffects[i].type !== fx.type);
+          
+          if (fxDiffers) {
+            engineTrack.effects = []
+            for (const fxData of targetEffects) {
+              const fxObj = engineTrack.addEffect(fxData.type)
+              if (fxObj) {
+                fxObj.id = fxData.id
+                if (fxData.params && fxObj.updateParams) {
+                  Object.assign(fxObj.params, fxData.params)
+                  fxObj.updateParams(fxData.params)
+                }
+              }
+            }
+          } else {
+            targetEffects.forEach((fxData, i) => {
+              const fxObj = currentEffects[i]
+              if (fxObj && fxData.params && fxObj.updateParams) {
+                Object.assign(fxObj.params, fxData.params)
+                fxObj.updateParams(fxData.params)
+              }
+            })
+          }
+
+          // Automations
+          if (track.automations) {
+            engineTrack.automations = track.automations
+            if (trackUIMap[track.id] && typeof trackUIMap[track.id].drawAutoCanvas === 'function') {
+              trackUIMap[track.id].drawAutoCanvas()
+            }
+          }
+        }
+      }
+
+      // (c) Reorder DOM nodes to match target order
+      const headerContainer = document.getElementById('track-headers-container')
+      const laneContainer = document.getElementById('track-lanes-container')
+      const mixerContainer = document.getElementById('mixer-channels-container')
+      const seqContainer = document.getElementById('seq-rows-container')
+      const prSelect = document.getElementById('pr-track-select')
+
+      targetTrackIds.forEach((trackId) => {
+        const ui = trackUIMap[trackId];
+        if (ui) {
+          const headerEl = ui.headers[0]?.headerEl;
+          const labelEl = ui.autoLanes[0]?.labelEl;
+          if (headerEl) {
+            headerContainer.appendChild(headerEl);
+            if (labelEl) headerContainer.appendChild(labelEl);
+          }
+          const laneEl = ui.headers[0]?.laneEl;
+          const autoLaneEl = ui.autoLanes[0]?.laneEl;
+          if (laneEl) {
+            laneContainer.appendChild(laneEl);
+            if (autoLaneEl) laneContainer.appendChild(autoLaneEl);
+          }
+          const channelEl = ui.mixers[0]?.channelEl;
+          if (channelEl) mixerContainer.appendChild(channelEl);
+          const seqRow = ui.seqRows[0];
+          if (seqRow) seqContainer.appendChild(seqRow);
+          if (prSelect) {
+            const opt = Array.from(prSelect.options).find(o => o.value === trackId);
+            if (opt) prSelect.appendChild(opt);
+          }
+        }
+      });
+
+      reindexTrackNumbers();
+
+      // 3. Restore Master Effects (diff)
+      const targetMasterFX = data.masterEffects || []
+      const currentMasterFX = engine.effects || []
+      const masterFxDiffers = targetMasterFX.length !== currentMasterFX.length || 
+        targetMasterFX.some((fx, i) => !currentMasterFX[i] || currentMasterFX[i].id !== fx.id || currentMasterFX[i].type !== fx.type);
+
+      if (masterFxDiffers) {
+        engine.effects = []
+        for (const fxData of targetMasterFX) {
+          const fxObj = engine.addEffect(fxData.type)
+          if (fxObj) {
+            fxObj.id = fxData.id
+            if (fxData.params && fxObj.updateParams) {
+              Object.assign(fxObj.params, fxData.params)
+              fxObj.updateParams(fxData.params)
+            }
+          }
+        }
+        engine.rebuildMasterChain()
+      } else {
+        targetMasterFX.forEach((fxData, i) => {
+          const fxObj = currentMasterFX[i]
+          if (fxObj && fxData.params && fxObj.updateParams) {
+            Object.assign(fxObj.params, fxData.params)
+            fxObj.updateParams(fxData.params)
+          }
+        })
+      }
+
+      if (window.updatePluginsFooter) window.updatePluginsFooter()
+      if (window.updateMixerInserts) window.updateMixerInserts()
+      engine.updateTrackVolumes()
+
+      // 4. Restore pattern data
+      if (data.patterns) {
+        Object.keys(data.patterns).forEach(trackId => {
+          sequencer.patterns[trackId] = data.patterns[trackId].map(n => ({
+            ...n, 
+            velocity: n.velocity !== undefined ? n.velocity : 1.0,
+            pan: n.pan !== undefined ? n.pan : 0.0,
+            pitch: n.pitch !== undefined ? n.pitch : 0,
+            probability: n.probability !== undefined ? n.probability : 100,
+            scheduled: false, 
+            _scheduledAt: new Set(), 
+            sourceNode: null
+          }))
+        })
+      }
+
+      // 5. Diff Audio Clips
+      const targetClips = data.clips || []
+      const clipsToKeep = []
+      const clipsToRemove = []
+
+      sequencer.clips.forEach(currentClip => {
+        const match = targetClips.find(tc => 
+          tc.trackId === currentClip.trackId && 
+          Math.abs(tc.startTime - currentClip.startTime) < 0.001 &&
+          Math.abs(tc.duration - currentClip.duration) < 0.001 &&
+          tc.filePath === currentClip._filePath
+        );
+        if (match) {
+          clipsToKeep.push(currentClip)
+        } else {
+          clipsToRemove.push(currentClip)
+        }
+      });
+
+      clipsToRemove.forEach(c => {
+        if (c.uiElement) c.uiElement.remove();
+      });
+
+      const newClips = targetClips.filter(tc => 
+        !clipsToKeep.some(cc => 
+          cc.trackId === tc.trackId && 
+          Math.abs(cc.startTime - tc.startTime) < 0.001 &&
+          Math.abs(cc.duration - tc.duration) < 0.001 &&
+          cc._filePath === tc.filePath
+        )
+      );
+
+      for (const c of newClips) {
+        if (!c.filePath) continue
+        try {
+          let absolutePath = c.filePath;
+          const isRelative = !c.filePath.startsWith('/') && !c.filePath.startsWith('\\') && !c.filePath.includes(':');
+          if (isRelative) {
+            let baseDir = '';
+            if (currentProjectPath) {
+              const lastIndex = Math.max(currentProjectPath.lastIndexOf('/'), currentProjectPath.lastIndexOf('\\'));
+              baseDir = currentProjectPath.slice(0, lastIndex);
+            } else {
+              baseDir = await window.api.getDefaultProjectsPath();
+            }
+            absolutePath = `${baseDir}/${c.filePath}`;
+          }
+
+          let audioBuffer = instrumentBufferCache.get(absolutePath);
+          if (!audioBuffer) {
+            const buf = await window.api.readFile(absolutePath)
+            if (buf) {
+              const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+              audioBuffer = await engine.decodeAudioData(arrayBuffer)
+              instrumentBufferCache.set(absolutePath, audioBuffer);
+            }
+          }
+
+          if (!audioBuffer) continue;
+
+          const lane = document.querySelector(`.track-lane[data-track-id="${c.trackId}"]`)
+          if (!lane) continue
+          const clipEl = document.createElement('div')
+          clipEl.className = 'clip audio-clip'
+          if (c.filePath.startsWith('Recorded/')) {
+            clipEl.classList.add('recorded-clip');
+          }
+          clipEl.style.left = `${c.startTime * sequencer.pxPerSecond}px`
+          clipEl.style.width = `${Math.max(20, c.duration * sequencer.pxPerSecond)}px`
+          clipEl.textContent = c.name || c.fileName
+          clipEl.dataset.startTime = c.startTime
+          clipEl.dataset.duration = c.duration
+          const rh = document.createElement('div')
+          rh.className = 'resize-handle'
+          clipEl.appendChild(rh)
+          lane.appendChild(clipEl)
+
+          clipsToKeep.push({
+            buffer: audioBuffer,
+            startTime: c.startTime,
+            duration: c.duration,
+            originalDuration: c.originalDuration || c.duration,
+            trackId: c.trackId,
+            scheduled: false,
+            uiElement: clipEl,
+            _filePath: c.filePath,
+            _fileName: c.fileName,
+            name: c.name || ''
+          });
+        } catch(e) { console.warn("Failed to patch clip:", e); }
+      }
+
+      sequencer.clips = clipsToKeep;
+
+      // 6. Diff Pattern Clips
+      const targetPatternClips = data.patternClips || []
+      const patternClipsToKeep = []
+      const patternClipsToRemove = []
+
+      sequencer.patternClips.forEach(c => {
+        const match = targetPatternClips.find(tc => 
+          tc.trackId === c.trackId && 
+          Math.abs(tc.startTime - c.startTime) < 0.001 &&
+          Math.abs(tc.duration - c.duration) < 0.001
+        );
+        if (match) {
+          patternClipsToKeep.push(c)
+        } else {
+          patternClipsToRemove.push(c)
+        }
+      });
+
+      patternClipsToRemove.forEach(pc => {
+        if (pc.uiElement) pc.uiElement.remove();
+      });
+
+      // Filter patternClips to keep only valid remaining ones
+      sequencer.patternClips = patternClipsToKeep;
+
+      const newPatternClips = targetPatternClips.filter(tc => 
+        !patternClipsToKeep.some(cc => 
+          cc.trackId === tc.trackId && 
+          Math.abs(cc.startTime - tc.startTime) < 0.001 &&
+          Math.abs(cc.duration - tc.duration) < 0.001
+        )
+      );
+
+      newPatternClips.forEach(pcData => {
+        const lane = document.querySelector(`.track-lane[data-track-id="${pcData.trackId}"]`);
+        if (lane) {
+          createPatternClipUI(pcData.trackId, pcData.startTime, pcData.duration, lane, pcData.name || 'Pattern');
+        }
+      });
+
+      drawTimeline()
+      drawPianoRollTimeline()
+
+      // Restore active track selection
+      if (savedTrackId && trackUIMap[savedTrackId]) {
+        selectTrackById(savedTrackId)
+      } else {
+        const firstTrackId = Object.keys(trackUIMap)[0]
+        if (firstTrackId) {
+          selectTrackById(firstTrackId)
+        } else {
+          if (prSelect) prSelect.dispatchEvent(new Event('change'))
+        }
+      }
+
+      // Re-open generator windows if they are still present
+      for (const trackId of openGeneratorTrackIds) {
+        if (trackUIMap[trackId]) {
+          showGeneratorWindow(trackId)
+        }
+      }
+      
+      const stepCountSelect = document.getElementById('step-count-select')
+      if (stepCountSelect) stepCountSelect.dispatchEvent(new Event('change'))
+      if (prSelect) prSelect.dispatchEvent(new Event('change'))
     }
 
     // ── Footer collapse ───────────────────────────────────────────
