@@ -308,6 +308,86 @@ function generateBassHit(options = {}) {
     return buffer;
 }
 
+function generateCrash(type = 'normal') {
+    const duration = 2.0;
+    const numSamples = Math.floor(sampleRate * duration);
+    const buffer = new Float32Array(numSamples);
+    
+    // Envelope parameters
+    const attack = type === 'soft' ? 0.025 : 0.003; // Softer attack for soft crash (25ms instead of 3ms)
+    const attackSamples = Math.round(attack * sampleRate);
+    const decaySamples = numSamples - attackSamples;
+    
+    // Metallic partial frequencies (Hz)
+    let partials;
+    if (type === 'soft') {
+        partials = [
+            { f: 1000, amp: 0.05 },
+            { f: 2800, amp: 0.08 },
+            { f: 4200, amp: 0.12 },
+            { f: 5300, amp: 0.15 },
+            { f: 6500, amp: 0.12 },
+            { f: 8000, amp: 0.08 },
+            { f: 10000, amp: 0.04 },
+        ];
+    } else {
+        partials = [
+            { f: 1200, amp: 0.08 },
+            { f: 3100, amp: 0.12 },
+            { f: 4700, amp: 0.18 },
+            { f: 5800, amp: 0.22 },
+            { f: 7300, amp: 0.20 },
+            { f: 9100, amp: 0.16 },
+            { f: 11400, amp: 0.12 },
+            { f: 14000, amp: 0.08 },
+        ];
+    }
+    
+    const phases = partials.map(() => 0);
+    
+    for (let i = 0; i < numSamples; i++) {
+        // Envelope: linear attack → exponential decay
+        let env;
+        if (i < attackSamples) {
+            env = i / attackSamples;
+        } else {
+            const t = (i - attackSamples) / decaySamples;
+            // Faster decay for a soft/splashy crash
+            const decayRate = type === 'soft' ? 7.5 : 5.5;
+            env = Math.exp(-decayRate * t);
+        }
+        
+        // White noise component
+        const noiseAmp = type === 'soft' ? 0.35 : 0.55;
+        let sample = (Math.random() * 2 - 1) * noiseAmp;
+        
+        // Add metallic partials
+        for (let p = 0; p < partials.length; p++) {
+            phases[p] += (2 * Math.PI * partials[p].f) / sampleRate;
+            sample += Math.sin(phases[p]) * partials[p].amp;
+        }
+        
+        // Apply envelope
+        buffer[i] = sample * env;
+    }
+    
+    // Normalization / scaling to prevent clipping
+    let peak = 0;
+    for (let i = 0; i < numSamples; i++) {
+        const absVal = Math.abs(buffer[i]);
+        if (absVal > peak) peak = absVal;
+    }
+    
+    const targetPeak = type === 'soft' ? 0.6 : 0.98; // Soft crash should be overall quieter
+    const scale = peak > targetPeak ? targetPeak / peak : (type === 'soft' ? targetPeak : 1);
+    
+    for (let i = 0; i < numSamples; i++) {
+        buffer[i] *= scale;
+    }
+    
+    return buffer;
+}
+
 const baseDir = 'src/renderer/public/audio/Starter Pack';
 
 console.log('Generating Library...');
@@ -397,6 +477,8 @@ writeWav(`${baseDir}/Drum Kit/snare_electronic.wav`, generateDrum('snare', 'elec
 writeWav(`${baseDir}/Drum Kit/snare_cracker.wav`, generateDrum('snare', 'cracker'), sampleRate);
 writeWav(`${baseDir}/Drum Kit/hihat_closed.wav`, generateDrum('hihat', 'closed'), sampleRate);
 writeWav(`${baseDir}/Drum Kit/hihat_open.wav`, generateDrum('hihat', 'open'), sampleRate);
+writeWav(`${baseDir}/Drum Kit/crash.wav`, generateCrash('normal'), sampleRate);
+writeWav(`${baseDir}/Drum Kit/crash_soft.wav`, generateCrash('soft'), sampleRate);
 
 // 808
 writeWav(`${baseDir}/808/808_kick.wav`, generate808('kick'), sampleRate);
