@@ -1,5 +1,6 @@
 import { engine, parseNoteToMidi, audioBufferToWav } from './AudioEngine.js'
 import { sequencer } from './Sequencer.js'
+import lamejs from 'lamejs'
 
 function init() {
   window.addEventListener('DOMContentLoaded', () => {
@@ -8,6 +9,7 @@ function init() {
     let prZoomFactor = 1.0
     let currentProjectPath = null
     let currentTrackId = 'kick' // Initialize with a default
+    let lcdDisplayMode = 'bars' // 'bars' | 'time'
     
     // OS File Association listener
     if (window.api && window.api.onOpenFile) {
@@ -1377,16 +1379,7 @@ function init() {
         }
 
         if (!trackId) return;
-
-        e.preventDefault();
-
-        trackDragState = {
-          trackId,
-          headerEl: header,
-          startY: e.clientY
-        };
-
-        header.classList.add('dragging-track');
+        // Drag-to-reorder disabled — use right-click → Move Up / Move Down instead
       });
 
       document.addEventListener('mousemove', (e) => {
@@ -1905,7 +1898,7 @@ function init() {
     function createTrackUI(trackId, trackName, defaultColor, refTrackId = null, position = null) {
       // 1. Initialize track in engine
       tracks[trackName] = engine.createTrack(trackId, trackName)
-      trackUIMap[trackId] = { headers: [], mixers: [], seqRows: [] }
+      trackUIMap[trackId] = { headers: [], mixers: [], seqRows: [], autoLanes: [] }
 
       // Find reference elements for insertion
       let refHeader = null;
@@ -2029,6 +2022,7 @@ function init() {
       } else {
         laneContainer.appendChild(autoLane);
       }
+      trackUIMap[trackId].autoLanes.push({ labelEl: autoLabel, laneEl: autoLane });
 
       // 4. Mixer Channel
       const mixerContainer = document.getElementById('mixer-channels-container')
@@ -3200,14 +3194,23 @@ function init() {
       const posDisplay = document.getElementById('position-display')
       if (posDisplay) {
         const timeInSeconds = sequencer.isPlaying ? engine.ctx.currentTime - sequencer.startTime : sequencer.pauseTime
-        const beatsPerSecond = sequencer.bpm / 60
-        const totalBeats = timeInSeconds * beatsPerSecond
-        const beatsPerBar = sequencer.timeSignature?.numerator || 4
-        const bars = Math.floor(totalBeats / beatsPerBar) + 1
-        const beats = Math.floor(totalBeats % beatsPerBar) + 1
-        const ticks = Math.floor((totalBeats - Math.floor(totalBeats)) * 16) + 1 // Sixteenths
-        const pad = (n, s) => n.toString().padStart(s, '0')
-        posDisplay.textContent = `${pad(bars, 3)} : ${pad(beats, 2)} : ${pad(ticks, 2)}`
+        if (lcdDisplayMode === 'bars') {
+          const beatsPerSecond = sequencer.bpm / 60
+          const totalBeats = Math.max(0, timeInSeconds) * beatsPerSecond
+          const beatsPerBar = sequencer.timeSignature?.numerator || 4
+          const bars = Math.floor(totalBeats / beatsPerBar) + 1
+          const beats = Math.floor(totalBeats % beatsPerBar) + 1
+          const ticks = Math.floor((totalBeats - Math.floor(totalBeats)) * 16) + 1
+          const pad = (n, s) => n.toString().padStart(s, '0')
+          posDisplay.textContent = `${pad(bars, 3)} : ${pad(beats, 2)} : ${pad(ticks, 2)}`
+        } else {
+          const t = Math.max(0, timeInSeconds)
+          const mins = Math.floor(t / 60)
+          const secs = Math.floor(t % 60)
+          const ms = Math.floor((t % 1) * 1000)
+          const pad = (n, s) => n.toString().padStart(s, '0')
+          posDisplay.textContent = `${pad(mins, 2)} : ${pad(secs, 2)} . ${pad(ms, 3)}`
+        }
       }
 
       const allMixerChannels = document.querySelectorAll('.mixer-channel');
@@ -3230,6 +3233,12 @@ function init() {
     }
     
     renderLoop()
+
+    // LCD position display — click to toggle between Bars and Time
+    document.getElementById('position-display')?.addEventListener('click', () => {
+      lcdDisplayMode = lcdDisplayMode === 'bars' ? 'time' : 'bars'
+      showToast(lcdDisplayMode === 'bars' ? '⏱ Position: Bars · Beats · Ticks' : '⏱ Position: MM : SS . ms')
+    })
     
     // Footer Resizer Logic
     const footerResizer = document.getElementById('footer-resizer')
@@ -6252,6 +6261,38 @@ const openGeneratorWindows = new Map();
     // Wire up dragging for the Export window
     makeWindowDraggable(exportModal, document.getElementById('export-header'));
 
+    // MP3 encoder using lamejs (192 kbps)
+    async function encodeToMp3(audioBuffer, numChannels, progressCallback) {
+      const sampleRate = audioBuffer.sampleRate;
+      const numSamples = audioBuffer.length;
+      const isStereo = numChannels > 1;
+      const f32ToI16 = (f32) => {
+        const i16 = new Int16Array(f32.length);
+        for (let i = 0; i < f32.length; i++) {
+          const s = Math.max(-1, Math.min(1, f32[i]));
+          i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        return i16;
+      };
+      const leftI16 = f32ToI16(audioBuffer.getChannelData(0));
+      const rightI16 = isStereo ? f32ToI16(audioBuffer.getChannelData(1)) : leftI16;
+      const mp3encoder = new lamejs.Mp3Encoder(isStereo ? 2 : 1, sampleRate, 192);
+      const mp3Chunks = [];
+      const blockSize = 1152;
+      for (let i = 0; i < numSamples; i += blockSize) {
+        const left = leftI16.subarray(i, Math.min(i + blockSize, numSamples));
+        const right = rightI16.subarray(i, Math.min(i + blockSize, numSamples));
+        const mp3buf = isStereo ? mp3encoder.encodeBuffer(left, right) : mp3encoder.encodeBuffer(left);
+        if (mp3buf.length > 0) mp3Chunks.push(mp3buf);
+        if (progressCallback) progressCallback(Math.round((i / numSamples) * 90));
+        await new Promise(r => setTimeout(r, 0)); // yield to UI
+      }
+      const finalBuf = mp3encoder.flush();
+      if (finalBuf.length > 0) mp3Chunks.push(finalBuf);
+      if (progressCallback) progressCallback(100);
+      return new Blob(mp3Chunks, { type: 'audio/mpeg' });
+    }
+
     exportStartBtn?.addEventListener('click', async () => {
       exportStartBtn.disabled = true;
       exportCancelBtn.disabled = true;
@@ -6331,6 +6372,28 @@ const openGeneratorWindows = new Map();
           await window.api.writeFile(filePath, uint8Arr);
           
           showToast(`Exported WebM Opus successfully!`);
+          closeExportModal();
+        } else if (formatVal === 'mp3') {
+          progressText.textContent = 'Encoding MP3 (192 kbps)...';
+          const mp3Blob = await encodeToMp3(renderedBuffer, channels, (percent) => {
+            progressPercent.textContent = `${percent}%`;
+            progressBar.style.width = `${percent}%`;
+          });
+
+          progressText.textContent = 'Choosing save location...';
+          const defaultName = `Mixdown_${Date.now()}.mp3`;
+          const filePath = await window.api.exportFile(defaultName, 'mp3', 'MP3 Audio File');
+          if (!filePath) {
+            showToast('Export cancelled');
+            resetExportUI();
+            return;
+          }
+
+          progressText.textContent = 'Writing MP3 file...';
+          const arrayBuf = await mp3Blob.arrayBuffer();
+          const uint8Arr = new Uint8Array(arrayBuf);
+          await window.api.writeFile(filePath, uint8Arr);
+          showToast('Exported MP3 (192 kbps) successfully!');
           closeExportModal();
         }
 

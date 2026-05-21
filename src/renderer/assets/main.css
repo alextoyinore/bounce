@@ -264,6 +264,18 @@ header {
   text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
 }
 
+#position-display {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  transition: text-shadow 0.15s;
+}
+
+#position-display:hover {
+  text-shadow: 0 0 14px rgba(0, 229, 255, 0.7);
+}
+
 select.lcd-value {
   background: transparent;
   border: none;
@@ -901,7 +913,7 @@ main {
   padding: 4px 6px;
   color: rgba(0, 0, 0, 0.8);
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
   cursor: grab;
   transition: transform 0.1s;
   box-sizing: border-box;
@@ -1446,7 +1458,7 @@ body.light-theme .channel-name-vertical {
   border: 1px solid rgba(0, 0, 0, 0.3);
   cursor: grab;
   user-select: none;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
 }
 
 .pr-note.dragging {

@@ -106,7 +106,7 @@
           </div>
           <div class="lcd-section time-display">
             <div class="lcd-label">POSITION</div>
-            <div class="lcd-value" id="position-display">001 : 01 : 00</div>
+            <div class="lcd-value" id="position-display" title="Click to toggle Bars / Time display">001 : 01 : 00</div>
           </div>
           <div class="lcd-section metronome-section" id="metronome-toggle-btn" title="Toggle Metronome" style="cursor: pointer; border-left: 1px solid var(--border-color); padding-left: 10px; margin-left: 5px; display: flex; align-items: center; justify-content: center; height: 100%; min-width: 40px; color: var(--text-secondary); transition: color 0.15s ease;">
             <svg id="metronome-status-display" style="transition: color 0.15s ease-in-out;" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256">
@@ -498,7 +498,7 @@
 
   
   <!-- ======= HELP MODAL ======= -->
-  <div id="help-modal" class="plugin-window" style="display:none; width: 500px; max-height: 520px;">
+  <div id="help-modal" class="plugin-window" style="display:none; width: 620px; max-height: 600px;">
     <div class="plugin-header" id="help-header" style="cursor: move;">
       <div class="plugin-title">
         <span>❓</span>
@@ -506,25 +506,85 @@
       </div>
       <button class="plugin-close" id="help-close-btn">✕</button>
     </div>
-    <div class="plugin-content" style="flex-direction: column; align-items: flex-start; gap: 12px; overflow-y: auto; max-height: 450px;">
-      <h3 style="margin: 0; color: var(--accent-color); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em;">⌨ KEYBOARD SHORTCUTS</h3>
-      <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse;">
-        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: 600; color: var(--text-primary);">Spacebar</td><td style="text-align: right; color: var(--text-secondary);">Play / Pause Transport</td></tr>
-        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: 600; color: var(--text-primary);">Ctrl + S</td><td style="text-align: right; color: var(--text-secondary);">Save Project</td></tr>
-        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: 600; color: var(--text-primary);">Ctrl + Z / Y</td><td style="text-align: right; color: var(--text-secondary);">Undo / Redo</td></tr>
-        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: 600; color: var(--text-primary);">Ctrl + ,</td><td style="text-align: right; color: var(--text-secondary);">Open Preferences</td></tr>
-        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: 600; color: var(--text-primary);">Ctrl + Wheel</td><td style="text-align: right; color: var(--text-secondary);">Zoom Arranger Timeline</td></tr>
-        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: 600; color: var(--text-primary);">Delete / Backspace</td><td style="text-align: right; color: var(--text-secondary);">Delete Selected Clip / Note</td></tr>
-        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 6px 0; font-weight: 600; color: var(--text-primary);">Q (Piano Roll)</td><td style="text-align: right; color: var(--text-secondary);">Quantize Notes</td></tr>
-        <tr><td style="padding: 6px 0; font-weight: 600; color: var(--text-primary);">L (Piano Roll)</td><td style="text-align: right; color: var(--text-secondary);">Legato Notes</td></tr>
+    <div class="plugin-content" style="flex-direction: column; align-items: flex-start; gap: 16px; overflow-y: auto; max-height: 540px; padding: 20px;">
+
+      <!-- Keyboard Shortcuts -->
+      <h3 style="margin: 0; color: var(--accent-color); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">⌨ Keyboard Shortcuts</h3>
+      <table style="width: 100%; font-size: 0.72rem; border-collapse: collapse;">
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary); width: 45%;">Space</td><td style="color: var(--text-secondary);">Play / Pause transport</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Ctrl + Z / Ctrl + Y</td><td style="color: var(--text-secondary);">Undo / Redo last action</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Ctrl + S</td><td style="color: var(--text-secondary);">Save project</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Ctrl + N / Ctrl + O</td><td style="color: var(--text-secondary);">New / Open project</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Ctrl + C / X / V</td><td style="color: var(--text-secondary);">Copy / Cut / Paste selected notes or clips</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Delete / Backspace</td><td style="color: var(--text-secondary);">Delete selected notes or clips</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Ctrl + Scroll Wheel</td><td style="color: var(--text-secondary);">Zoom timeline horizontally</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Ctrl + E</td><td style="color: var(--text-secondary);">Open Export dialog</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Ctrl + ,</td><td style="color: var(--text-secondary);">Open Preferences</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Q (Piano Roll active)</td><td style="color: var(--text-secondary);">Quantize selected notes to grid</td></tr>
+        <tr style="border-bottom: 1px solid var(--border-color);"><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">L (Piano Roll active)</td><td style="color: var(--text-secondary);">Apply legato — extend notes to fill gaps</td></tr>
+        <tr><td style="padding: 5px 0; font-weight: 600; color: var(--text-primary);">Ctrl + K (Piano Roll)</td><td style="color: var(--text-secondary);">Chop notes at the grid boundary</td></tr>
       </table>
-      <h3 style="color: var(--accent-color); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; margin-top: 4px;">🎛 QUICK TIPS</h3>
-      <ul style="font-size: 0.75rem; color: var(--text-secondary); padding-left: 16px; margin: 0; line-height: 1.8;">
-        <li>To paint automation, click <strong style="color: var(--text-primary);">"A"</strong> on any track header then drag inside the automation lane.</li>
-        <li>In the Step Sequencer, clicking a step triggers playback. Right-click to delete steps.</li>
-        <li>Double-click any active plugin in the footer to open its parameter window.</li>
-        <li>Hover over EQ dials in the mixer to see live dB values.</li>
+
+      <!-- Arranger -->
+      <h3 style="margin: 0; color: var(--accent-color); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">🗂 Arranger View</h3>
+      <ul style="font-size: 0.72rem; color: var(--text-secondary); padding-left: 16px; margin: 0; line-height: 2;">
+        <li><strong style="color: var(--text-primary);">Add a clip:</strong> Drag an audio sample from the Browser panel and drop it onto any track lane.</li>
+        <li><strong style="color: var(--text-primary);">Move a clip:</strong> Drag it left or right along the timeline. Use Arrow keys for grid-snapped nudging.</li>
+        <li><strong style="color: var(--text-primary);">Resize a clip:</strong> Drag the right edge of any clip to shorten or lengthen it.</li>
+        <li><strong style="color: var(--text-primary);">Multi-select clips:</strong> Hold <kbd>Shift</kbd> and drag to draw a marquee selection over multiple clips.</li>
+        <li><strong style="color: var(--text-primary);">Duplicate a clip:</strong> Hold <kbd>Ctrl</kbd> and drag a clip to copy it to a new position.</li>
+        <li><strong style="color: var(--text-primary);">Rename a clip:</strong> Right-click a clip and choose <em>Rename</em>.</li>
+        <li><strong style="color: var(--text-primary);">Delete a clip:</strong> Right-click a clip → Delete, or press <kbd>Backspace</kbd> while it is selected.</li>
+        <li><strong style="color: var(--text-primary);">Pattern clips:</strong> MIDI notes in the Piano Roll are shown as pattern clips in the arranger. Right-click to rename or slice them.</li>
       </ul>
+
+      <!-- Piano Roll -->
+      <h3 style="margin: 0; color: var(--accent-color); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">🎹 Piano Roll</h3>
+      <ul style="font-size: 0.72rem; color: var(--text-secondary); padding-left: 16px; margin: 0; line-height: 2;">
+        <li><strong style="color: var(--text-primary);">Add a note:</strong> Left-click on an empty row cell to place a note at that pitch and step position.</li>
+        <li><strong style="color: var(--text-primary);">Delete a note:</strong> Right-click on any existing note to remove it immediately.</li>
+        <li><strong style="color: var(--text-primary);">Move a note:</strong> Click and drag any note up/down (to change pitch) or left/right (to change timing).</li>
+        <li><strong style="color: var(--text-primary);">Resize a note:</strong> Drag the right edge of a note to change its duration.</li>
+        <li><strong style="color: var(--text-primary);">Multi-select:</strong> Hold <kbd>Shift</kbd> and drag to marquee-select multiple notes. Hold <kbd>Ctrl</kbd> and click to add individual notes to selection.</li>
+        <li><strong style="color: var(--text-primary);">Note settings:</strong> Right-click a selected note and choose <em>Note Settings</em> to adjust velocity, pan, pitch offset, and probability per note.</li>
+        <li><strong style="color: var(--text-primary);">Snap grid:</strong> Use the Snap dropdown at the top of the Piano Roll to set quantization (1/4, 1/8, 1/16, etc.).</li>
+        <li><strong style="color: var(--text-primary);">Quantize:</strong> Select notes and press <kbd>Q</kbd> to snap them to the current snap grid.</li>
+        <li><strong style="color: var(--text-primary);">Randomize velocity:</strong> Use the toolbar button to give all selected notes a slightly randomized velocity for a more human feel.</li>
+      </ul>
+
+      <!-- Step Sequencer -->
+      <h3 style="margin: 0; color: var(--accent-color); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">🥁 Step Sequencer</h3>
+      <ul style="font-size: 0.72rem; color: var(--text-secondary); padding-left: 16px; margin: 0; line-height: 2;">
+        <li><strong style="color: var(--text-primary);">Toggle a step:</strong> Left-click a step cell to activate it; click again to deactivate.</li>
+        <li><strong style="color: var(--text-primary);">Delete a step:</strong> Right-click an active step to remove it.</li>
+        <li><strong style="color: var(--text-primary);">Pattern length:</strong> Use the <em>Steps</em> selector at the top to switch between 8, 16, 32, and 64 step patterns.</li>
+        <li><strong style="color: var(--text-primary);">Assign a sample:</strong> Drop any sample from the Browser onto a track header — the track name and step row update instantly.</li>
+        <li><strong style="color: var(--text-primary);">Live triggering:</strong> Clicking a step cell while transport is running triggers the sample immediately.</li>
+      </ul>
+
+      <!-- Tracks -->
+      <h3 style="margin: 0; color: var(--accent-color); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">🎚 Tracks &amp; Mixer</h3>
+      <ul style="font-size: 0.72rem; color: var(--text-secondary); padding-left: 16px; margin: 0; line-height: 2;">
+        <li><strong style="color: var(--text-primary);">Add a track:</strong> Click the <em>+ Add Track</em> button at the bottom of the track list.</li>
+        <li><strong style="color: var(--text-primary);">Rename a track:</strong> Click the track name text in the header and type a new name.</li>
+        <li><strong style="color: var(--text-primary);">Move a track:</strong> Right-click the track header → <em>Move Up</em> or <em>Move Down</em>.</li>
+        <li><strong style="color: var(--text-primary);">Mute / Solo:</strong> Click <kbd>M</kbd> or <kbd>S</kbd> on any track header or mixer channel.</li>
+        <li><strong style="color: var(--text-primary);">Volume &amp; Pan:</strong> Drag the volume knob (right) or pan knob (left) on the track header. Or use the fader in the Mixer view.</li>
+        <li><strong style="color: var(--text-primary);">Automation lane:</strong> Click the <kbd>A</kbd> button on a track header to reveal the automation lane. Click to place breakpoints, drag to edit. Right-click a breakpoint to delete it.</li>
+        <li><strong style="color: var(--text-primary);">Insert plugins:</strong> Open the Mixer view → click any insert slot to add Reverb, Delay, EQ, Compressor or Distortion plugins.</li>
+        <li><strong style="color: var(--text-primary);">Sound Properties:</strong> Right-click a track header → <em>Sound Properties</em> to open the generator window (ADSR, Filter, Pitch).</li>
+      </ul>
+
+      <!-- LCD Display -->
+      <h3 style="margin: 0; color: var(--accent-color); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">🖥 Transport &amp; LCD</h3>
+      <ul style="font-size: 0.72rem; color: var(--text-secondary); padding-left: 16px; margin: 0; line-height: 2;">
+        <li><strong style="color: var(--text-primary);">Play / Stop:</strong> Use the ▶ / ■ transport buttons or press <kbd>Space</kbd>.</li>
+        <li><strong style="color: var(--text-primary);">Loop mode:</strong> Click the ↻ loop button to enable looped playback between the loop markers.</li>
+        <li><strong style="color: var(--text-primary);">BPM:</strong> Click the BPM display and type a new value, or scroll over it to nudge.</li>
+        <li><strong style="color: var(--text-primary);">Position display:</strong> Click the position readout in the LCD to toggle between <em>Bars:Beats:Ticks</em> and <em>HH:MM:SS</em> time display.</li>
+        <li><strong style="color: var(--text-primary);">Export:</strong> Use <em>File → Export</em> (or <kbd>Ctrl+E</kbd>) to render the project to WAV, WebM, or MP3.</li>
+      </ul>
+
     </div>
   </div>
 
@@ -539,7 +599,7 @@
     </div>
     <div class="plugin-content" style="flex-direction: column; align-items: center; gap: 0; padding: 28px 24px 24px;">
       <!-- Official Bounce logo -->
-      <div style="width: 80px; height: 80px; border-radius: 20px; background: #0f172a; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 32px rgba(0,229,255,0.25), 0 8px 32px rgba(0,0,0,0.6); margin-bottom: 20px; flex-shrink: 0;">
+      <div style="width: 80px; height: 80px; border-radius: 20px; background: #0f172a; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; flex-shrink: 0;">
         <svg width="52" height="52" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="aboutLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -557,9 +617,10 @@
       </div>
       <h2 style="margin: 0 0 4px; font-size: 1.6rem; font-weight: 800; letter-spacing: 0.08em; color: var(--text-primary);">BOUNCE DAW</h2>
       <span style="font-size: 0.65rem; color: var(--accent-color); letter-spacing: 0.15em; text-transform: uppercase; font-weight: 600;">Version 1.2.0 — Stable</span>
-      <p style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.7; margin: 20px 0; text-align: center; max-width: 280px;">
+      <p style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.7; margin: 16px 0 8px; text-align: center; max-width: 280px;">
         A professional, ultra-high-performance Digital Audio Workstation. Synthesized beat generation, fully-featured Piano Roll, and state-of-the-art MIDI &amp; audio rendering.
       </p>
+      <span style="font-size: 0.7rem; color: var(--text-muted); letter-spacing: 0.05em;">Created by <strong style="color: var(--text-secondary);">Alexander Ore</strong></span>
     </div>
   </div>
 
@@ -580,6 +641,7 @@
           <option value="wav-16">WAV (16-bit PCM) — CD Quality</option>
           <option value="wav-24">WAV (24-bit PCM) — Studio Quality</option>
           <option value="wav-32">WAV (32-bit Float) — Production Quality</option>
+          <option value="mp3">MP3 Audio — 192 kbps Compressed</option>
           <option value="webm">WebM Audio (Opus) — High Quality Compressed</option>
         </select>
       </div>

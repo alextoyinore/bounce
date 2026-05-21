@@ -33,5 +33,8 @@
     "eslint": "^9.39.1",
     "prettier": "^3.7.4",
     "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "lamejs": "^1.2.1"
   }
 }
