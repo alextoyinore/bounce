@@ -1,4 +1,4 @@
-import { engine, parseNoteToMidi } from './AudioEngine.js'
+import { engine, parseNoteToMidi, audioBufferToWav } from './AudioEngine.js'
 import { sequencer } from './Sequencer.js'
 
 function init() {
@@ -114,6 +114,16 @@ function init() {
           showToast("Nothing to Undo")
           return
         }
+        // Capture view state before restoring history
+        const _activePanelId = document.querySelector('.footer-panel.active')?.id
+        const _activeBrowserTab = document.querySelector('.browser-tab.active')?.dataset.tab
+        const _seqContainer = document.querySelector('.sequencer-container')
+        const _prViewport = document.querySelector('.pr-viewport')
+        const _seqSL = _seqContainer?.scrollLeft || 0
+        const _seqST = _seqContainer?.scrollTop || 0
+        const _prSL = _prViewport?.scrollLeft || 0
+        const _prST = _prViewport?.scrollTop || 0
+
         const current = serializeProject()
         const previous = this.undoStack.pop()
         this.redoStack.push({ actionName: previous.actionName, state: current })
@@ -124,6 +134,16 @@ function init() {
           await loadProject(data)
           isRestoringHistory = false
           showToast(`Undo: ${previous.actionName}`)
+          // Restore view state after project reload
+          if (_activePanelId) switchToView(_activePanelId)
+          if (_activeBrowserTab) {
+            document.querySelectorAll('.browser-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === _activeBrowserTab))
+            document.querySelectorAll('.browser-tab-content').forEach(c => c.classList.toggle('active', c.id === `browser-${_activeBrowserTab}-tab`))
+          }
+          requestAnimationFrame(() => {
+            if (_seqContainer) { _seqContainer.scrollLeft = _seqSL; _seqContainer.scrollTop = _seqST }
+            if (_prViewport) { _prViewport.scrollLeft = _prSL; _prViewport.scrollTop = _prST }
+          })
         } catch(e) {
           isRestoringHistory = false
           console.error("Undo failed:", e)
@@ -135,6 +155,16 @@ function init() {
           showToast("Nothing to Redo")
           return
         }
+        // Capture view state before restoring history
+        const _activePanelId = document.querySelector('.footer-panel.active')?.id
+        const _activeBrowserTab = document.querySelector('.browser-tab.active')?.dataset.tab
+        const _seqContainer = document.querySelector('.sequencer-container')
+        const _prViewport = document.querySelector('.pr-viewport')
+        const _seqSL = _seqContainer?.scrollLeft || 0
+        const _seqST = _seqContainer?.scrollTop || 0
+        const _prSL = _prViewport?.scrollLeft || 0
+        const _prST = _prViewport?.scrollTop || 0
+
         const next = this.redoStack.pop()
         const current = serializeProject()
         this.undoStack.push({ actionName: next.actionName, state: current })
@@ -145,6 +175,16 @@ function init() {
           await loadProject(data)
           isRestoringHistory = false
           showToast(`Redo: ${next.actionName}`)
+          // Restore view state after project reload
+          if (_activePanelId) switchToView(_activePanelId)
+          if (_activeBrowserTab) {
+            document.querySelectorAll('.browser-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === _activeBrowserTab))
+            document.querySelectorAll('.browser-tab-content').forEach(c => c.classList.toggle('active', c.id === `browser-${_activeBrowserTab}-tab`))
+          }
+          requestAnimationFrame(() => {
+            if (_seqContainer) { _seqContainer.scrollLeft = _seqSL; _seqContainer.scrollTop = _seqST }
+            if (_prViewport) { _prViewport.scrollLeft = _prSL; _prViewport.scrollTop = _prST }
+          })
         } catch(e) {
           isRestoringHistory = false
           console.error("Redo failed:", e)
@@ -1189,6 +1229,10 @@ function init() {
       drawTimeline();
       if (typeof drawPianoRollTimeline === 'function') drawPianoRollTimeline();
       if (typeof rebuildPianoRollNotes === 'function') rebuildPianoRollNotes();
+      // Redraw all visible automation canvases so breakpoints align with the new zoom level
+      Object.values(trackUIMap).forEach(map => {
+        if (map && typeof map.drawAutoCanvas === 'function') map.drawAutoCanvas();
+      });
     }
 
     document.getElementById('arranger-zoom-slider')?.addEventListener('input', (e) => {
@@ -2128,17 +2172,18 @@ function init() {
         const spec = AUTO_SPECS[currentAutoParam] || { min:0, max:1 };
         const { min, max } = spec;
         const pts = getAutoPoints();
+        const _isLight = document.body.classList.contains('light-theme');
         ctx2d.clearRect(0, 0, W, H);
-        ctx2d.fillStyle = 'rgba(0,0,0,0.3)'; ctx2d.fillRect(0, 0, W, H);
+        ctx2d.fillStyle = _isLight ? 'rgba(0,0,0,0.03)' : 'rgba(0,0,0,0.3)'; ctx2d.fillRect(0, 0, W, H);
         // bar grid
         const secPerBar = (sequencer.timeSignature.numerator / (sequencer.bpm / 60));
         const pxPerBar = secPerBar * pps;
-        ctx2d.strokeStyle = 'rgba(255,255,255,0.06)'; ctx2d.lineWidth = 1;
+        ctx2d.strokeStyle = _isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'; ctx2d.lineWidth = 1;
         for (let x = 0; x < W; x += pxPerBar) { ctx2d.beginPath(); ctx2d.moveTo(x,0); ctx2d.lineTo(x,H); ctx2d.stroke(); }
         // center reference line
         const ctr = (0 - min) / (max - min);
         if (ctr > 0 && ctr < 1) {
-          ctx2d.strokeStyle = 'rgba(255,255,255,0.1)'; ctx2d.setLineDash([3,3]);
+          ctx2d.strokeStyle = _isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.1)'; ctx2d.setLineDash([3,3]);
           ctx2d.beginPath(); ctx2d.moveTo(0, H - ctr*H); ctx2d.lineTo(W, H - ctr*H); ctx2d.stroke();
           ctx2d.setLineDash([]);
         }
@@ -3615,6 +3660,7 @@ function init() {
                 const s = stepSeqRow.querySelector(`[data-step-index="${stepIndex}"]`);
                 if (s) s.classList.remove('active');
               }
+              syncPatternClip(trackId);
             })
             row.appendChild(n)
           } else if (!active && existing) {
@@ -3689,6 +3735,7 @@ function init() {
           }
           selectedNotes.delete(note);
           note.remove();
+          syncPatternClip(currentTrackId);
           dawHistory.pushState('Delete Note');
         }
       });
@@ -5912,6 +5959,60 @@ const openGeneratorWindows = new Map();
     populateList(effectsContainer, effects, 'effects')
     populateList(generatorsContainer, generators, 'generators')
 
+    // ── Floating Window Utilities ─────────────────────────────────────────
+    let _floatZCounter = 10000;
+
+    function bringWindowToFront(win) {
+      if (!win) return;
+      _floatZCounter++;
+      win.style.zIndex = _floatZCounter;
+    }
+
+    function makeWindowDraggable(win, header) {
+      if (!win || !header) return;
+      let isDragging = false, startX, startY, startLeft, startTop;
+
+      // Bring to front on any click
+      win.addEventListener('mousedown', () => bringWindowToFront(win));
+
+      header.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.plugin-close')) return;
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        const rect = win.getBoundingClientRect();
+        startLeft = rect.left;
+        startTop = rect.top;
+        // Snap out of CSS centering transform on first drag
+        win.style.transform = 'none';
+        win.style.left = `${startLeft}px`;
+        win.style.top = `${startTop}px`;
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        win.style.left = `${startLeft + (e.clientX - startX)}px`;
+        win.style.top  = `${startTop  + (e.clientY - startY)}px`;
+      });
+
+      document.addEventListener('mouseup', () => { isDragging = false; });
+    }
+
+    function openFloatingWindow(win) {
+      if (!win) return;
+      // Centre on screen only the first time (before any drag)
+      if (!win._floatPositioned) {
+        win.style.position = 'fixed';
+        win.style.left = '50%';
+        win.style.top  = '50%';
+        win.style.transform = 'translate(-50%, -50%)';
+        win._floatPositioned = true;
+      }
+      win.style.display = 'flex';
+      bringWindowToFront(win);
+    }
+
     // ── Preferences / Settings Modal Logic ──────────────────────────────
     const prefModal = document.getElementById('settings-modal');
     const prefCloseBtn = document.getElementById('settings-close-btn');
@@ -5945,16 +6046,21 @@ const openGeneratorWindows = new Map();
         openPreferencesModal();
       }
       
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        document.getElementById('menu-export')?.click();
+      }
+      
       if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-        if (e.key.toLowerCase() === 'q' && document.getElementById('piano-roll-view')?.classList.contains('active')) {
+        if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'q' && document.getElementById('piano-roll-view')?.classList.contains('active')) {
           e.preventDefault();
           document.getElementById('pr-quantize-btn')?.click();
         }
-        if (e.key.toLowerCase() === 'c' && document.getElementById('piano-roll-view')?.classList.contains('active')) {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && document.getElementById('piano-roll-view')?.classList.contains('active')) {
           e.preventDefault();
           document.getElementById('pr-chop-btn')?.click();
         }
-        if (e.key.toLowerCase() === 'l' && document.getElementById('piano-roll-view')?.classList.contains('active')) {
+        if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l' && document.getElementById('piano-roll-view')?.classList.contains('active')) {
           e.preventDefault();
           document.getElementById('pr-legato-btn')?.click();
         }
@@ -5963,7 +6069,7 @@ const openGeneratorWindows = new Map();
 
     async function openPreferencesModal() {
       if (!prefModal) return;
-      prefModal.style.display = 'flex';
+      openFloatingWindow(prefModal);
       
       // Update Audio Stats
       const sampleRateEl = document.getElementById('pref-sample-rate');
@@ -6075,12 +6181,11 @@ const openGeneratorWindows = new Map();
     }
 
     prefCloseBtn?.addEventListener('click', closePreferencesModal);
-    
-    prefModal?.addEventListener('mousedown', (e) => {
-      if (e.target === prefModal) closePreferencesModal();
-    });
 
-    // ======= HELP MODAL HANDLERS =======
+    // Wire up dragging for the Preferences window
+    makeWindowDraggable(prefModal, document.getElementById('settings-header'));
+
+    // ======= HELP WINDOW HANDLERS =======
     const helpModal = document.getElementById('help-modal');
     const helpCloseBtn = document.getElementById('help-close-btn');
     const menuHelp = document.getElementById('menu-help');
@@ -6088,18 +6193,17 @@ const openGeneratorWindows = new Map();
     menuHelp?.addEventListener('click', (e) => {
       e.stopPropagation();
       document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
-      if (helpModal) helpModal.style.display = 'flex';
+      openFloatingWindow(helpModal);
     });
 
     helpCloseBtn?.addEventListener('click', () => {
       if (helpModal) helpModal.style.display = 'none';
     });
 
-    helpModal?.addEventListener('mousedown', (e) => {
-      if (e.target === helpModal) helpModal.style.display = 'none';
-    });
+    // Wire up dragging for the Help window
+    makeWindowDraggable(helpModal, document.getElementById('help-header'));
 
-    // ======= ABOUT MODAL HANDLERS =======
+    // ======= ABOUT WINDOW HANDLERS =======
     const aboutModal = document.getElementById('about-modal');
     const aboutCloseBtn = document.getElementById('about-close-btn');
     const menuAbout = document.getElementById('menu-about');
@@ -6107,16 +6211,142 @@ const openGeneratorWindows = new Map();
     menuAbout?.addEventListener('click', (e) => {
       e.stopPropagation();
       document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
-      if (aboutModal) aboutModal.style.display = 'flex';
+      openFloatingWindow(aboutModal);
     });
 
     aboutCloseBtn?.addEventListener('click', () => {
       if (aboutModal) aboutModal.style.display = 'none';
     });
 
-    aboutModal?.addEventListener('mousedown', (e) => {
-      if (e.target === aboutModal) aboutModal.style.display = 'none';
+    // Wire up dragging for the About window
+    makeWindowDraggable(aboutModal, document.getElementById('about-header'));
+
+    // ======= EXPORT WINDOW HANDLERS =======
+    const exportModal = document.getElementById('export-modal');
+    const exportCloseBtn = document.getElementById('export-close-btn');
+    const exportCancelBtn = document.getElementById('export-cancel-btn');
+    const exportStartBtn = document.getElementById('export-start-btn');
+    const menuExport = document.getElementById('menu-export');
+
+    menuExport?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+      // Reset state
+      document.getElementById('export-progress-area').style.display = 'none';
+      document.getElementById('export-status-text').textContent = 'Preparing render engine...';
+      document.getElementById('export-progress-percent').textContent = '0%';
+      document.getElementById('export-progress-bar').style.width = '0%';
+      exportStartBtn.disabled = false;
+      exportCancelBtn.disabled = false;
+      exportCloseBtn.disabled = false;
+      openFloatingWindow(exportModal);
     });
+
+    const closeExportModal = () => {
+      if (exportModal) exportModal.style.display = 'none';
+    };
+
+    exportCloseBtn?.addEventListener('click', closeExportModal);
+    exportCancelBtn?.addEventListener('click', closeExportModal);
+
+    // Wire up dragging for the Export window
+    makeWindowDraggable(exportModal, document.getElementById('export-header'));
+
+    exportStartBtn?.addEventListener('click', async () => {
+      exportStartBtn.disabled = true;
+      exportCancelBtn.disabled = true;
+      exportCloseBtn.disabled = true;
+
+      const formatVal = document.getElementById('export-format').value; // 'wav-16', 'wav-24', 'wav-32', 'webm'
+      const sampleRate = parseInt(document.getElementById('export-sample-rate').value) || 44100;
+      const channels = parseInt(document.getElementById('export-channels').value) || 2;
+      const tail = parseFloat(document.getElementById('export-tail').value) || 2.0;
+
+      const progressArea = document.getElementById('export-progress-area');
+      const progressText = document.getElementById('export-status-text');
+      const progressPercent = document.getElementById('export-progress-percent');
+      const progressBar = document.getElementById('export-progress-bar');
+
+      progressArea.style.display = 'flex';
+      progressText.textContent = 'Rendering project...';
+      progressPercent.textContent = '0%';
+      progressBar.style.width = '0%';
+
+      try {
+        const renderedBuffer = await engine.renderProjectOffline(sequencer, {
+          sampleRate,
+          numChannels: channels,
+          tailDuration: tail
+        }, (percent) => {
+          progressPercent.textContent = `${percent}%`;
+          progressBar.style.width = `${percent}%`;
+        });
+
+        progressPercent.textContent = '100%';
+        progressBar.style.width = '100%';
+        
+        if (formatVal.startsWith('wav-')) {
+          progressText.textContent = 'Encoding WAV...';
+          const bitDepth = formatVal.split('-')[1]; // '16', '24', '32'
+          const wavBlob = audioBufferToWav(renderedBuffer, bitDepth);
+          
+          progressText.textContent = 'Choosing save location...';
+          const defaultName = `Mixdown_${Date.now()}.wav`;
+          const filePath = await window.api.exportFile(defaultName, 'wav', 'WAV Audio File');
+          if (!filePath) {
+            showToast('Export cancelled');
+            resetExportUI();
+            return;
+          }
+
+          progressText.textContent = 'Writing WAV file...';
+          const arrayBuf = await wavBlob.arrayBuffer();
+          const uint8Arr = new Uint8Array(arrayBuf);
+          
+          await window.api.writeFile(filePath, uint8Arr);
+          
+          showToast(`Exported WAV (${bitDepth}-bit) successfully!`);
+          closeExportModal();
+        } else if (formatVal === 'webm') {
+          progressText.textContent = 'Encoding Opus (Silent Capture)...';
+          
+          const webmBlob = await captureWebmSilently(renderedBuffer, sampleRate, channels, (percent) => {
+            progressPercent.textContent = `${percent}%`;
+            progressBar.style.width = `${percent}%`;
+          });
+
+          progressText.textContent = 'Choosing save location...';
+          const defaultName = `Mixdown_${Date.now()}.webm`;
+          const filePath = await window.api.exportFile(defaultName, 'webm', 'WebM Opus Audio File');
+          if (!filePath) {
+            showToast('Export cancelled');
+            resetExportUI();
+            return;
+          }
+
+          progressText.textContent = 'Writing WebM file...';
+          const arrayBuf = await webmBlob.arrayBuffer();
+          const uint8Arr = new Uint8Array(arrayBuf);
+          
+          await window.api.writeFile(filePath, uint8Arr);
+          
+          showToast(`Exported WebM Opus successfully!`);
+          closeExportModal();
+        }
+
+      } catch (err) {
+        console.error('Export failed:', err);
+        showToast('Export failed: ' + err.message);
+        resetExportUI();
+      }
+    });
+
+    function resetExportUI() {
+      exportStartBtn.disabled = false;
+      exportCancelBtn.disabled = false;
+      exportCloseBtn.disabled = false;
+      document.getElementById('export-progress-area').style.display = 'none';
+    }
 
     // Theme Switcher clicks
     document.querySelectorAll('.theme-btn').forEach(btn => {
@@ -6347,6 +6577,84 @@ const openGeneratorWindows = new Map();
     // Initial update of mixer inserts
     updateMixerInserts()
   })
+}
+
+/**
+ * Silently captures an AudioBuffer as a WebM Opus blob.
+ * Audio is routed to a MediaStreamAudioDestinationNode (never reaches speakers).
+ * @param {AudioBuffer} audioBuffer  - The fully rendered offline buffer
+ * @param {number} sampleRate        - Target sample rate (informational; ctx uses its own)
+ * @param {number} channels          - Channel count (informational)
+ * @param {function} onProgress      - Progress callback 0-100
+ * @returns {Promise<Blob>}          - Resolves with the encoded WebM blob
+ */
+async function captureWebmSilently(audioBuffer, sampleRate, channels, onProgress) {
+  return new Promise((resolve, reject) => {
+    // Create a NEW silent AudioContext (not the main one) so no audio goes to speakers.
+    const silentCtx = new AudioContext({ sampleRate: audioBuffer.sampleRate });
+
+    // Route: BufferSource → MediaStreamDestination (silent, no speakers)
+    const dest = silentCtx.createMediaStreamDestination();
+
+    const source = silentCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(dest);
+
+    const totalDuration = audioBuffer.duration;
+    const chunks = [];
+
+    // Pick the best supported mime type for Opus
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : 'audio/ogg;codecs=opus';
+
+    let recorder;
+    try {
+      recorder = new MediaRecorder(dest.stream, { mimeType });
+    } catch (e) {
+      reject(new Error('MediaRecorder not supported for WebM/Opus: ' + e.message));
+      silentCtx.close();
+      return;
+    }
+
+    recorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+    };
+
+    recorder.onstop = () => {
+      silentCtx.close();
+      if (onProgress) onProgress(100);
+      resolve(new Blob(chunks, { type: mimeType }));
+    };
+
+    recorder.onerror = (ev) => {
+      silentCtx.close();
+      reject(new Error('MediaRecorder error: ' + ev.error));
+    };
+
+    // Progress ticking via a simple interval based on AudioContext time
+    let progressInterval = null;
+    const startTime = silentCtx.currentTime;
+
+    recorder.start(100); // Collect data every 100ms
+    source.start(0);
+
+    progressInterval = setInterval(() => {
+      const elapsed = silentCtx.currentTime - startTime;
+      const pct = Math.min(99, Math.round((elapsed / totalDuration) * 100));
+      if (onProgress) onProgress(pct);
+    }, 250);
+
+    source.onended = () => {
+      clearInterval(progressInterval);
+      // Give MediaRecorder a moment to flush final chunk
+      setTimeout(() => {
+        if (recorder.state !== 'inactive') recorder.stop();
+      }, 200);
+    };
+  });
 }
 
 function buildPianoRoll() {

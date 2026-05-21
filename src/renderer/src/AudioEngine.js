@@ -14,11 +14,19 @@ export function parseNoteToFrequency(noteName) {
 }
 
 // Convert AudioBuffer to WAV Blob
-function audioBufferToWav(buffer) {
+export function audioBufferToWav(buffer, depth = '16') {
   const numOfChan = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
-  const format = 1; // raw PCM
-  const bitDepth = 16;
+  
+  let format = 1; // PCM raw
+  let bitDepth = 16;
+  
+  if (depth === '24') {
+    bitDepth = 24;
+  } else if (depth === '32') {
+    format = 3; // IEEE Float
+    bitDepth = 32;
+  }
   
   let result;
   if (numOfChan === 2) {
@@ -27,20 +35,14 @@ function audioBufferToWav(buffer) {
     result = buffer.getChannelData(0);
   }
   
-  const bufferLength = result.length * 2;
+  const bytesPerSample = bitDepth / 8;
+  const bufferLength = result.length * bytesPerSample;
   const arrayBuffer = new ArrayBuffer(44 + bufferLength);
   const view = new DataView(arrayBuffer);
   
   function writeString(view, offset, string) {
     for (let i = 0; i < string.length; i++) {
       view.setUint8(offset + i, string.charCodeAt(i));
-    }
-  }
-  
-  function floatTo16BitPCM(output, offset, input) {
-    for (let i = 0; i < input.length; i++, offset += 2) {
-      let s = Math.max(-1, Math.min(1, input[i]));
-      output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
     }
   }
   
@@ -67,16 +69,16 @@ function audioBufferToWav(buffer) {
   writeString(view, 12, 'fmt ');
   /* format chunk length */
   view.setUint32(16, 16, true);
-  /* sample format (raw) */
+  /* sample format */
   view.setUint16(20, format, true);
   /* channel count */
   view.setUint16(22, numOfChan, true);
   /* sample rate */
   view.setUint32(24, sampleRate, true);
-  /* byte rate (sample rate * block align) */
-  view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
-  /* block align (channel count * bytes per sample) */
-  view.setUint16(32, numOfChan * (bitDepth / 8), true);
+  /* byte rate */
+  view.setUint32(28, sampleRate * numOfChan * bytesPerSample, true);
+  /* block align */
+  view.setUint16(32, numOfChan * bytesPerSample, true);
   /* bits per sample */
   view.setUint16(34, bitDepth, true);
   /* data chunk identifier */
@@ -84,8 +86,26 @@ function audioBufferToWav(buffer) {
   /* data chunk length */
   view.setUint32(40, bufferLength, true);
   
-  // Write PCM audio data
-  floatTo16BitPCM(view, 44, result);
+  // Write PCM or Float audio data
+  let offset = 44;
+  if (depth === '16') {
+    for (let i = 0; i < result.length; i++, offset += 2) {
+      let s = Math.max(-1, Math.min(1, result[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+  } else if (depth === '24') {
+    for (let i = 0; i < result.length; i++, offset += 3) {
+      let s = Math.max(-1, Math.min(1, result[i]));
+      let val = Math.floor(s < 0 ? s * 0x800000 : s * 0x7FFFFF);
+      view.setUint8(offset, val & 0xFF);
+      view.setUint8(offset + 1, (val >> 8) & 0xFF);
+      view.setUint8(offset + 2, (val >> 16) & 0xFF);
+    }
+  } else if (depth === '32') {
+    for (let i = 0; i < result.length; i++, offset += 4) {
+      view.setFloat32(offset, result[i], true);
+    }
+  }
   
   return new Blob([view], { type: 'audio/wav' });
 }
@@ -1407,6 +1427,231 @@ class AudioEngine {
     };
   }
 
+  async renderProjectOffline(sequencerInstance, options, onProgress) {
+    const sampleRate = options.sampleRate || 44100;
+    const numChannels = options.numChannels || 2;
+    const tailDuration = options.tailDuration !== undefined ? parseFloat(options.tailDuration) : 2.0;
+    
+    const maxTime = sequencerInstance._getMaxTime();
+    const duration = maxTime + tailDuration;
+    const totalFrames = Math.max(1, Math.floor(duration * sampleRate));
+    
+    // Create OfflineAudioContext
+    const offlineCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(numChannels, totalFrames, sampleRate);
+    
+    // Reconstruct Master routing and effects chain
+    const offlineMasterGain = offlineCtx.createGain();
+    offlineMasterGain.gain.setValueAtTime(this.masterGain.gain.value, 0);
+    
+    let lastMasterNode = offlineMasterGain;
+    this.effects.forEach(fx => {
+      const offlineFx = createEffectNodes(offlineCtx, fx.type);
+      if (fx.params) {
+        offlineFx.updateParams(fx.params);
+      }
+      const inNode = offlineFx.inputNode || offlineFx.node;
+      const outNode = offlineFx.outputNode || offlineFx.node;
+      if (inNode && outNode) {
+        lastMasterNode.connect(inNode);
+        lastMasterNode = outNode;
+      }
+    });
+    lastMasterNode.connect(offlineCtx.destination);
+    
+    // Reconstruct all tracks
+    const offlineTracks = new Map();
+    const isAnySoloed = this.soloedTracks.size > 0;
+    
+    for (const [trackId, track] of this.tracks.entries()) {
+      const offlineTrackGain = offlineCtx.createGain();
+      const offlineTrackPanner = offlineCtx.createStereoPanner();
+      
+      // Determine volume with mute/solo scaling
+      const multiplier = (isAnySoloed ? (track.isSoloed ? 1 : 0) : (track.isMuted ? 0 : 1));
+      const volPoints = track.automations?.volume;
+      if (multiplier === 0) {
+        offlineTrackGain.gain.setValueAtTime(0, 0);
+      } else if (volPoints && volPoints.length > 0) {
+        offlineTrackGain.gain.setValueAtTime(volPoints[0].value, 0);
+        volPoints.forEach(p => {
+          offlineTrackGain.gain.linearRampToValueAtTime(p.value, p.time);
+        });
+      } else {
+        offlineTrackGain.gain.setValueAtTime(track.baseVolume, 0);
+      }
+      
+      // Determine pan with automation
+      const panPoints = track.automations?.pan;
+      if (panPoints && panPoints.length > 0) {
+        offlineTrackPanner.pan.setValueAtTime(panPoints[0].value, 0);
+        panPoints.forEach(p => {
+          offlineTrackPanner.pan.linearRampToValueAtTime(p.value, p.time);
+        });
+      } else {
+        offlineTrackPanner.pan.setValueAtTime(track.pan, 0);
+      }
+      
+      // Reconstruct lowFilter, midFilter, highFilter
+      const offlineLowFilter = offlineCtx.createBiquadFilter();
+      offlineLowFilter.type = 'lowshelf';
+      offlineLowFilter.frequency.setValueAtTime(200, 0);
+      offlineLowFilter.gain.setValueAtTime(track.eqValues.low, 0);
+      
+      const offlineMidFilter = offlineCtx.createBiquadFilter();
+      offlineMidFilter.type = 'peaking';
+      offlineMidFilter.frequency.setValueAtTime(1000, 0);
+      offlineMidFilter.Q.setValueAtTime(1.0, 0);
+      offlineMidFilter.gain.setValueAtTime(track.eqValues.mid, 0);
+      
+      const offlineHighFilter = offlineCtx.createBiquadFilter();
+      offlineHighFilter.type = 'highshelf';
+      offlineHighFilter.frequency.setValueAtTime(5000, 0);
+      offlineHighFilter.gain.setValueAtTime(track.eqValues.high, 0);
+      
+      // Reconstruct track FX chain
+      const offlineTrackInput = offlineCtx.createGain();
+      let lastTrackNode = offlineTrackInput;
+      
+      track.effects.forEach(fx => {
+        const offlineFx = createEffectNodes(offlineCtx, fx.type);
+        if (fx.params) {
+          offlineFx.updateParams(fx.params);
+        }
+        const inNode = offlineFx.inputNode || offlineFx.node;
+        const outNode = offlineFx.outputNode || offlineFx.node;
+        if (inNode && outNode) {
+          lastTrackNode.connect(inNode);
+          lastTrackNode = outNode;
+        }
+      });
+      
+      // Route sequence
+      lastTrackNode.connect(offlineLowFilter);
+      offlineLowFilter.connect(offlineMidFilter);
+      offlineMidFilter.connect(offlineHighFilter);
+      offlineHighFilter.connect(offlineTrackGain);
+      offlineTrackGain.connect(offlineTrackPanner);
+      offlineTrackPanner.connect(offlineMasterGain);
+      
+      offlineTracks.set(trackId, {
+        inputNode: offlineTrackInput,
+        instrumentBuffer: track.instrumentBuffer,
+        instrumentRootMidi: track.instrumentRootMidi,
+        generator: JSON.parse(JSON.stringify(track.generator)),
+        automations: track.automations
+      });
+    }
+    
+    // ── Re-schedule Audio Clips ─────────────────────────────────────
+    sequencerInstance.clips.forEach(clip => {
+      if (!clip.buffer) return;
+      
+      const offlineTrack = offlineTracks.get(clip.trackId);
+      if (!offlineTrack) return;
+      
+      const source = offlineCtx.createBufferSource();
+      source.buffer = clip.buffer;
+      
+      // Tempo sync
+      const rawDuration = clip.buffer.duration;
+      const originalMusicalDuration = clip.originalDuration || clip.duration;
+      if (originalMusicalDuration > 0 && Math.abs(rawDuration - originalMusicalDuration) > 0.01) {
+        source.playbackRate.setValueAtTime(rawDuration / originalMusicalDuration, 0);
+      }
+      
+      source.connect(offlineTrack.inputNode);
+      
+      const exactTime = clip.startTime;
+      const offset = 0;
+      const playDuration = clip.duration;
+      
+      if (playDuration > 0) {
+        source.start(exactTime, offset, rawDuration * (source.playbackRate.value || 1) > 0
+          ? playDuration * (source.playbackRate.value || 1)
+          : undefined);
+      }
+    });
+    
+    // ── Re-schedule Pattern Notes ────────────────────────────────────
+    const beatsPerSecond = sequencerInstance.bpm / 60;
+    const secondsPerStep = (1 / beatsPerSecond) / 4;
+    
+    for (const trackId in sequencerInstance.patterns) {
+      const offlineTrack = offlineTracks.get(trackId);
+      if (!offlineTrack) continue;
+      
+      const offsets = [];
+      const placedClips = sequencerInstance.patternClips.filter(pc => pc.trackId === trackId);
+      if (placedClips.length > 0) {
+        placedClips.forEach(pc => offsets.push({ startTime: pc.startTime, duration: pc.duration }));
+      } else {
+        offsets.push({ startTime: 0, duration: Infinity });
+      }
+      
+      sequencerInstance.patterns[trackId].forEach(noteObj => {
+        const noteRelTime = noteObj.step * secondsPerStep;
+        
+        offsets.forEach(offset => {
+          if (noteRelTime >= offset.duration) return;
+          
+          const noteAbsTime = offset.startTime + noteRelTime;
+          const prob = noteObj.probability !== undefined ? noteObj.probability : 100;
+          if (prob < 100 && Math.random() * 100 > prob) return;
+          
+          const noteDuration = noteObj.durationSteps * secondsPerStep;
+          const pitch = noteObj.pitch !== undefined ? noteObj.pitch : 0;
+          
+          // Deep copy generator for this note to apply per-note automated parameters
+          const gen = JSON.parse(JSON.stringify(offlineTrack.generator));
+          if (gen && gen.params) {
+            for (const paramName in gen.params) {
+              const autoKey = 'gen.' + paramName;
+              if (offlineTrack.automations && offlineTrack.automations[autoKey]) {
+                const points = offlineTrack.automations[autoKey];
+                const val = interpolateAutomation(points, noteAbsTime);
+                if (val !== null) {
+                  gen.params[paramName] = val;
+                }
+              }
+            }
+          }
+          
+          // Trigger the note offline
+          playNoteOffline(offlineCtx, {
+            inputNode: offlineTrack.inputNode,
+            generator: gen,
+            instrumentBuffer: offlineTrack.instrumentBuffer,
+            instrumentRootMidi: offlineTrack.instrumentRootMidi
+          }, noteObj.note, noteAbsTime, noteDuration, noteObj.velocity, noteObj.pan, pitch);
+        });
+      });
+    }
+    
+    // Set up suspend progress ticks
+    const sliceDuration = 0.25;
+    const sliceSamples = Math.floor(sliceDuration * sampleRate);
+    
+    const setupProgressTicks = () => {
+      for (let sampleIndex = sliceSamples; sampleIndex < totalFrames; sampleIndex += sliceSamples) {
+        const time = sampleIndex / sampleRate;
+        offlineCtx.suspend(time).then(() => {
+          const percent = Math.round((offlineCtx.currentTime / duration) * 100);
+          if (onProgress) onProgress(Math.min(99, percent));
+          offlineCtx.resume();
+        }).catch(err => {
+          // Context might have finished rendering before suspension is processed
+        });
+      }
+    };
+    
+    setupProgressTicks();
+    
+    // Render!
+    const renderedBuffer = await offlineCtx.startRendering();
+    if (onProgress) onProgress(100);
+    return renderedBuffer;
+  }
+
   async setOutputDevice(deviceId) {
     this.outputDeviceId = deviceId;
     if (this.ctx.setSinkId && deviceId && deviceId !== 'default') {
@@ -1414,6 +1659,209 @@ class AudioEngine {
       catch (err) { console.warn('setSinkId failed:', err); }
     }
   }
+}
+
+function interpolateAutomation(points, time) {
+  if (!points || points.length === 0) return null;
+  if (time <= points[0].time) return points[0].value;
+  if (time >= points[points.length - 1].time) return points[points.length - 1].value;
+  for (let i = 0; i < points.length - 1; i++) {
+    if (time >= points[i].time && time < points[i + 1].time) {
+      const t = (time - points[i].time) / (points[i + 1].time - points[i].time);
+      return points[i].value + t * (points[i + 1].value - points[i].value);
+    }
+  }
+  return null;
+}
+
+function playNoteOffline(offlineCtx, track, noteName, time, duration = 0, velocity = 1.0, pan = 0.0, pitchOffset = 0) {
+  const gen = track.generator || { type: 'sampler', params: { attack: 0.005, decay: 0.1, sustain: 1.0, release: 0.1, cutoff: 20000, resonance: 1.0, pitch: 0 } };
+  const midiNote = parseNoteToMidi(noteName) + pitchOffset;
+  const frequency = 440 * Math.pow(2, (midiNote - 69) / 12);
+  const now = time;
+  const noteDuration = duration > 0 ? duration : 0.2;
+  
+  // Per-note Panning
+  let pannerNode = null;
+  if (offlineCtx.createStereoPanner && pan !== 0.0) {
+    pannerNode = offlineCtx.createStereoPanner();
+    pannerNode.pan.value = pan;
+    pannerNode.connect(track.inputNode);
+  }
+  
+  const destinationNode = pannerNode || track.inputNode;
+
+  if (gen.type === 'sampler') {
+    if (!track.instrumentBuffer) return null;
+    const pitchOffsetGen = gen.params.pitch || 0;
+    const semitones = (midiNote + pitchOffsetGen) - track.instrumentRootMidi;
+    const rate = Math.pow(2, semitones / 12);
+    
+    const source = offlineCtx.createBufferSource();
+    source.buffer = track.instrumentBuffer;
+    source.playbackRate.setValueAtTime(rate, now);
+    
+    const envelope = offlineCtx.createGain();
+    const attack = gen.params.attack !== undefined ? gen.params.attack : 0.005;
+    const decay = gen.params.decay !== undefined ? gen.params.decay : 0.1;
+    const sustain = gen.params.sustain !== undefined ? gen.params.sustain : 1.0;
+    const release = gen.params.release !== undefined ? gen.params.release : 0.1;
+    
+    const filter = offlineCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(gen.params.cutoff !== undefined ? gen.params.cutoff : 20000, now);
+    filter.Q.setValueAtTime(gen.params.resonance !== undefined ? gen.params.resonance : 1.0, now);
+    
+    source.connect(filter);
+    filter.connect(envelope);
+    envelope.connect(destinationNode);
+    
+    const peakLevel = velocity;
+    const sustainLevel = sustain * velocity;
+    
+    envelope.gain.setValueAtTime(0, now);
+    envelope.gain.linearRampToValueAtTime(peakLevel, now + attack);
+    envelope.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
+    
+    source.start(now);
+    
+    const releaseTime = now + noteDuration;
+    envelope.gain.setValueAtTime(sustainLevel, releaseTime);
+    envelope.gain.linearRampToValueAtTime(0, releaseTime + release);
+    source.stop(releaseTime + release);
+    return source;
+  }
+  
+  else if (gen.type === 'monosynth' || gen.type === 'polysynth') {
+    const oscType = gen.params.oscType || 'sawtooth';
+    const attack = gen.params.attack !== undefined ? gen.params.attack : 0.05;
+    const decay = gen.params.decay !== undefined ? gen.params.decay : 0.2;
+    const sustain = gen.params.sustain !== undefined ? gen.params.sustain : 0.6;
+    const release = gen.params.release !== undefined ? gen.params.release : 0.3;
+    const cutoff = gen.params.cutoff !== undefined ? gen.params.cutoff : 2000;
+    const resonance = gen.params.resonance !== undefined ? gen.params.resonance : 1.0;
+    
+    const osc = offlineCtx.createOscillator();
+    osc.type = oscType;
+    osc.frequency.setValueAtTime(frequency, now);
+    
+    let subOsc = null;
+    let osc2 = null;
+    const synthGain = offlineCtx.createGain();
+    
+    if (gen.type === 'monosynth') {
+      const subAmt = gen.params.subOsc !== undefined ? gen.params.subOsc : 0.5;
+      if (subAmt > 0) {
+        subOsc = offlineCtx.createOscillator();
+        subOsc.type = 'triangle';
+        subOsc.frequency.setValueAtTime(frequency / 2, now);
+        
+        const subGain = offlineCtx.createGain();
+        subGain.gain.setValueAtTime(subAmt * 0.4, now);
+        
+        subOsc.connect(subGain);
+        subGain.connect(synthGain);
+      }
+    } else if (gen.type === 'polysynth') {
+      const detuneVal = gen.params.detune !== undefined ? gen.params.detune : 10;
+      if (detuneVal > 0) {
+        osc2 = offlineCtx.createOscillator();
+        osc2.type = oscType;
+        osc2.frequency.setValueAtTime(frequency, now);
+        osc2.detune.setValueAtTime(detuneVal, now);
+        
+        const osc2Gain = offlineCtx.createGain();
+        osc2Gain.gain.setValueAtTime(0.3, now);
+        
+        osc2.connect(osc2Gain);
+        osc2Gain.connect(synthGain);
+      }
+    }
+    
+    const envelope = offlineCtx.createGain();
+    const filter = offlineCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(cutoff, now);
+    filter.Q.setValueAtTime(resonance, now);
+    
+    osc.connect(synthGain);
+    synthGain.connect(filter);
+    filter.connect(envelope);
+    envelope.connect(destinationNode);
+    
+    const peakLevel = 0.4 * velocity;
+    const sustainLevel = sustain * 0.4 * velocity;
+    
+    envelope.gain.setValueAtTime(0, now);
+    envelope.gain.linearRampToValueAtTime(peakLevel, now + attack);
+    envelope.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
+    
+    osc.start(now);
+    if (subOsc) subOsc.start(now);
+    if (osc2) osc2.start(now);
+    
+    const releaseTime = now + noteDuration;
+    envelope.gain.setValueAtTime(sustainLevel, releaseTime);
+    envelope.gain.linearRampToValueAtTime(0, releaseTime + release);
+    
+    osc.stop(releaseTime + release);
+    if (subOsc) subOsc.stop(releaseTime + release);
+    if (osc2) osc2.stop(releaseTime + release);
+    
+    return osc;
+  }
+  
+  else if (gen.type === 'fmsynth') {
+    const carrierType = gen.params.carrierType || 'sine';
+    const modType = gen.params.modType || 'sine';
+    const modIndex = gen.params.modIndex !== undefined ? gen.params.modIndex : 5;
+    const modRatio = gen.params.modFreqRatio !== undefined ? gen.params.modFreqRatio : 2.0;
+    
+    const attack = gen.params.attack !== undefined ? gen.params.attack : 0.01;
+    const decay = gen.params.decay !== undefined ? gen.params.decay : 0.2;
+    const sustain = gen.params.sustain !== undefined ? gen.params.sustain : 0.8;
+    const release = gen.params.release !== undefined ? gen.params.release : 0.4;
+    
+    const carrier = offlineCtx.createOscillator();
+    carrier.type = carrierType;
+    carrier.frequency.setValueAtTime(frequency, now);
+    
+    const modulator = offlineCtx.createOscillator();
+    modulator.type = modType;
+    modulator.frequency.setValueAtTime(frequency * modRatio, now);
+    
+    const modGain = offlineCtx.createGain();
+    modGain.gain.setValueAtTime(frequency * modRatio * modIndex, now);
+    
+    const envelope = offlineCtx.createGain();
+    
+    modulator.connect(modGain);
+    modGain.connect(carrier.frequency);
+    
+    carrier.connect(envelope);
+    envelope.connect(destinationNode);
+    
+    const peakLevel = 0.3 * velocity;
+    const sustainLevel = sustain * 0.3 * velocity;
+
+    envelope.gain.setValueAtTime(0, now);
+    envelope.gain.linearRampToValueAtTime(peakLevel, now + attack);
+    envelope.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
+    
+    carrier.start(now);
+    modulator.start(now);
+    
+    const releaseTime = now + noteDuration;
+    envelope.gain.setValueAtTime(sustainLevel, releaseTime);
+    envelope.gain.linearRampToValueAtTime(0, releaseTime + release);
+    
+    carrier.stop(releaseTime + release);
+    modulator.stop(releaseTime + release);
+    
+    return carrier;
+  }
+  
+  return null;
 }
 
 export const engine = new AudioEngine();
