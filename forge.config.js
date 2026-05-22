@@ -51,11 +51,7 @@ module.exports = {
         }
       }
     },
-    {
-      // Linux: .rpm package
-      name: '@electron-forge/maker-rpm',
-      config: {}
-    }
+
   ],
   plugins: [
     new VitePlugin({
