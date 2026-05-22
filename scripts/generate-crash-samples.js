@@ -11,29 +11,29 @@
  *   <documents>/Bounce/library
  */
 
-const fs   = require('fs')
+const fs = require('fs')
 const path = require('path')
-const os   = require('os')
+const os = require('os')
 
 // ── WAV helpers ──────────────────────────────────────────────────────────────
 
 function writeInt32LE(buf, offset, value) {
-  buf[offset]     = (value)       & 0xff
-  buf[offset + 1] = (value >> 8)  & 0xff
+  buf[offset] = value & 0xff
+  buf[offset + 1] = (value >> 8) & 0xff
   buf[offset + 2] = (value >> 16) & 0xff
   buf[offset + 3] = (value >> 24) & 0xff
 }
 
 function writeInt16LE(buf, offset, value) {
-  buf[offset]     = (value)      & 0xff
+  buf[offset] = value & 0xff
   buf[offset + 1] = (value >> 8) & 0xff
 }
 
 function buildWavHeader(numSamples, sampleRate, numChannels, bitsPerSample) {
-  const byteRate   = sampleRate * numChannels * (bitsPerSample / 8)
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8)
   const blockAlign = numChannels * (bitsPerSample / 8)
-  const dataSize   = numSamples * numChannels * (bitsPerSample / 8)
-  const fileSize   = 36 + dataSize
+  const dataSize = numSamples * numChannels * (bitsPerSample / 8)
+  const fileSize = 36 + dataSize
 
   const header = Buffer.alloc(44)
   // RIFF chunk
@@ -42,8 +42,8 @@ function buildWavHeader(numSamples, sampleRate, numChannels, bitsPerSample) {
   header.write('WAVE', 8)
   // fmt sub-chunk
   header.write('fmt ', 12)
-  writeInt32LE(header, 16, 16)               // sub-chunk size
-  writeInt16LE(header, 20, 1)                // PCM = 1
+  writeInt32LE(header, 16, 16) // sub-chunk size
+  writeInt16LE(header, 20, 1) // PCM = 1
   writeInt16LE(header, 22, numChannels)
   writeInt32LE(header, 24, sampleRate)
   writeInt32LE(header, 28, byteRate)
@@ -64,22 +64,22 @@ function buildWavHeader(numSamples, sampleRate, numChannels, bitsPerSample) {
 
 function synthesizeCrash(sampleRate = 44100, durationSec = 2.0) {
   const numSamples = Math.round(sampleRate * durationSec)
-  const samples    = new Float32Array(numSamples)
+  const samples = new Float32Array(numSamples)
 
   // Envelope parameters
-  const attackSamples  = Math.round(0.003 * sampleRate)   // 3 ms
-  const decaySamples   = numSamples - attackSamples
+  const attackSamples = Math.round(0.003 * sampleRate) // 3 ms
+  const decaySamples = numSamples - attackSamples
 
   // Metallic partial frequencies (Hz) – simulates a real crash cymbal body
   const partials = [
-    { f: 1200,  amp: 0.08 },
-    { f: 3100,  amp: 0.12 },
-    { f: 4700,  amp: 0.18 },
-    { f: 5800,  amp: 0.22 },
-    { f: 7300,  amp: 0.20 },
-    { f: 9100,  amp: 0.16 },
+    { f: 1200, amp: 0.08 },
+    { f: 3100, amp: 0.12 },
+    { f: 4700, amp: 0.18 },
+    { f: 5800, amp: 0.22 },
+    { f: 7300, amp: 0.2 },
+    { f: 9100, amp: 0.16 },
     { f: 11400, amp: 0.12 },
-    { f: 14000, amp: 0.08 },
+    { f: 14000, amp: 0.08 }
   ]
 
   // Phase accumulators for each partial
@@ -92,7 +92,7 @@ function synthesizeCrash(sampleRate = 44100, durationSec = 2.0) {
       env = i / attackSamples
     } else {
       const t = (i - attackSamples) / decaySamples
-      env = Math.exp(-5.5 * t)   // decay constant → ~zero at 2 s
+      env = Math.exp(-5.5 * t) // decay constant → ~zero at 2 s
     }
 
     // White noise component
@@ -101,7 +101,7 @@ function synthesizeCrash(sampleRate = 44100, durationSec = 2.0) {
     // Add metallic partials
     for (let p = 0; p < partials.length; p++) {
       phases[p] += (2 * Math.PI * partials[p].f) / sampleRate
-      sample    += Math.sin(phases[p]) * partials[p].amp
+      sample += Math.sin(phases[p]) * partials[p].amp
     }
 
     // Apply envelope
@@ -120,7 +120,7 @@ function synthesizeCrash(sampleRate = 44100, durationSec = 2.0) {
 function float32To16BitPCM(floatSamples) {
   const buf = Buffer.alloc(floatSamples.length * 2)
   for (let i = 0; i < floatSamples.length; i++) {
-    const s   = Math.max(-1, Math.min(1, floatSamples[i]))
+    const s = Math.max(-1, Math.min(1, floatSamples[i]))
     const val = s < 0 ? s * 0x8000 : s * 0x7fff
     writeInt16LE(buf, i * 2, Math.round(val))
   }
@@ -129,9 +129,9 @@ function float32To16BitPCM(floatSamples) {
 
 function buildCrashWav() {
   const SAMPLE_RATE = 44100
-  const samples     = synthesizeCrash(SAMPLE_RATE, 2.0)
-  const pcm         = float32To16BitPCM(samples)
-  const header      = buildWavHeader(samples.length, SAMPLE_RATE, 1, 16)
+  const samples = synthesizeCrash(SAMPLE_RATE, 2.0)
+  const pcm = float32To16BitPCM(samples)
+  const header = buildWavHeader(samples.length, SAMPLE_RATE, 1, 16)
   return Buffer.concat([header, pcm])
 }
 
@@ -148,9 +148,9 @@ function getLibraryPath() {
  */
 function isDrumKitDir(dirPath) {
   try {
-    const files = fs.readdirSync(dirPath).map(f => f.toLowerCase())
+    const files = fs.readdirSync(dirPath).map((f) => f.toLowerCase())
     const signatures = ['kick', 'snare', 'hihat', 'hi-hat', 'hat', 'clap', 'tom']
-    return signatures.some(sig => files.some(f => f.includes(sig)))
+    return signatures.some((sig) => files.some((f) => f.includes(sig)))
   } catch {
     return false
   }
@@ -159,14 +159,15 @@ function isDrumKitDir(dirPath) {
 function scanAndFix(libraryPath, wavBuffer) {
   if (!fs.existsSync(libraryPath)) {
     console.log(`Library not found at: ${libraryPath}`)
-    console.log('Launch Bounce at least once so the library folder is created, then re-run this script.')
+    console.log(
+      'Launch Bounce at least once so the library folder is created, then re-run this script.'
+    )
     return
   }
 
   let fixed = 0
 
-  const packs = fs.readdirSync(libraryPath, { withFileTypes: true })
-    .filter(d => d.isDirectory())
+  const packs = fs.readdirSync(libraryPath, { withFileTypes: true }).filter((d) => d.isDirectory())
 
   for (const pack of packs) {
     const packPath = path.join(libraryPath, pack.name)
@@ -183,8 +184,9 @@ function scanAndFix(libraryPath, wavBuffer) {
 
     // Check one level of sub-directories (e.g. "Starter Pack / Drum Kit 1 / …")
     try {
-      const subDirs = fs.readdirSync(packPath, { withFileTypes: true })
-        .filter(d => d.isDirectory())
+      const subDirs = fs
+        .readdirSync(packPath, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
       for (const sub of subDirs) {
         const subPath = path.join(packPath, sub.name)
         if (isDrumKitDir(subPath)) {
@@ -196,7 +198,9 @@ function scanAndFix(libraryPath, wavBuffer) {
           }
         }
       }
-    } catch { /* skip unreadable dirs */ }
+    } catch {
+      /* skip unreadable dirs */
+    }
   }
 
   if (fixed === 0) {

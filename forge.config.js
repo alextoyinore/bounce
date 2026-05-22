@@ -32,7 +32,8 @@ module.exports = {
       // Windows: Squirrel installer (silent, no UAC prompt)
       name: '@electron-forge/maker-squirrel',
       config: {
-        name: 'bounce'
+        name: 'bounce',
+        setupIcon: './resources/icon.ico'
       }
     },
     {

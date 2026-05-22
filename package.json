@@ -1,5 +1,6 @@
 {
   "name": "bounce",
+  "productName": "Bounce",
   "version": "1.0.0",
   "description": "A minimal music DAW",
   "main": ".vite/build/main.js",

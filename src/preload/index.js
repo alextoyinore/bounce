@@ -7,7 +7,8 @@ const api = {
   readDirectory: (dirPath) => ipcRenderer.invoke('fs:readDirectory', dirPath),
   readFile: (filePath) => ipcRenderer.invoke('fs:readFile', filePath),
   saveFile: (defaultPath) => ipcRenderer.invoke('dialog:saveFile', defaultPath),
-  exportFile: (defaultName, ext, desc) => ipcRenderer.invoke('dialog:exportFile', defaultName, ext, desc),
+  exportFile: (defaultName, ext, desc) =>
+    ipcRenderer.invoke('dialog:exportFile', defaultName, ext, desc),
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   writeFile: (filePath, data) => ipcRenderer.invoke('fs:writeFile', filePath, data),
   getAudioPath: () => ipcRenderer.invoke('app:getAudioPath'),
