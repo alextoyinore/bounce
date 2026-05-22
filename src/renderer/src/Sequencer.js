@@ -214,6 +214,10 @@ export class Sequencer {
     this.isPlaying = false
     this.pauseTime = 0
 
+    // Cancel the decoupled scheduler timers
+    if (this._audioTickId != null) { clearTimeout(this._audioTickId); this._audioTickId = null }
+    if (this._uiFrameId != null) { cancelAnimationFrame(this._uiFrameId); this._uiFrameId = null }
+
     this.clips.forEach((clip) => {
       if (clip.sourceNode) {
         try {
@@ -254,6 +258,10 @@ export class Sequencer {
     if (!this.isPlaying) return
     this.isPlaying = false
     this.pauseTime = engine.ctx.currentTime - this.startTime
+
+    // Cancel the decoupled scheduler timers
+    if (this._audioTickId != null) { clearTimeout(this._audioTickId); this._audioTickId = null }
+    if (this._uiFrameId != null) { cancelAnimationFrame(this._uiFrameId); this._uiFrameId = null }
 
     this.clips.forEach((clip) => {
       if (clip.sourceNode) {
@@ -502,41 +510,63 @@ export class Sequencer {
     })
   }
 
-  scheduleLoop() {
-    if (!this.isPlaying) return
+  // ── Decoupled audio scheduler (setTimeout) ────────────────────────────────
+  // Runs every 25ms with a 250ms lookahead, completely independent of rAF so
+  // that DOM work / repaints never cause audio dropouts.
+  _startAudioTick() {
+    const LOOKAHEAD = 0.25  // schedule 250ms ahead
+    const INTERVAL_MS = 25  // check every 25ms
 
-    const currentTime = engine.ctx.currentTime - this.startTime
+    const tick = () => {
+      if (!this.isPlaying) return
 
-    this.updatePlayhead(currentTime)
-    this.updateLCD(currentTime)
+      const currentTime = engine.ctx.currentTime - this.startTime
+      const maxTime = this._getMaxTime()
 
-    const lookahead = 0.1
-    const maxTime = this._getMaxTime()
-
-    // ── Loop / Auto-stop ─────────────────────────────────────────────
-    if (maxTime > 0 && currentTime >= maxTime) {
-      if (this.loopEnabled) {
-        this.startTime += maxTime
-        this._resetScheduled()
-        const newCurrentTime = engine.ctx.currentTime - this.startTime
-        this._scheduleClips(newCurrentTime, lookahead)
-        this._schedulePatterns(newCurrentTime, lookahead)
-        this._scheduleMetronome(newCurrentTime, lookahead)
-        this._applyAutomation(newCurrentTime)
-        requestAnimationFrame(() => this.scheduleLoop())
-        return
-      } else if (currentTime > maxTime + 0.5) {
-        this.stop()
-        return
+      if (maxTime > 0 && currentTime >= maxTime) {
+        if (this.loopEnabled) {
+          // Advance the timeline anchor by one loop length
+          this.startTime += maxTime
+          this._resetScheduled()
+          // How many seconds past the loop boundary are we right now?
+          const drift = engine.ctx.currentTime - this.startTime
+          // Start the window from 0 so beat-1 notes (time=0) are never missed
+          this._scheduleClips(0, drift + LOOKAHEAD)
+          this._schedulePatterns(0, drift + LOOKAHEAD)
+          this._scheduleMetronome(drift, LOOKAHEAD)
+        } else if (currentTime > maxTime + 0.5) {
+          this.stop()
+          return
+        }
+      } else {
+        this._scheduleClips(currentTime, LOOKAHEAD)
+        this._schedulePatterns(currentTime, LOOKAHEAD)
+        this._scheduleMetronome(currentTime, LOOKAHEAD)
       }
+
+      this._audioTickId = setTimeout(tick, INTERVAL_MS)
     }
 
-    this._scheduleClips(currentTime, lookahead)
-    this._schedulePatterns(currentTime, lookahead)
-    this._scheduleMetronome(currentTime, lookahead)
-    this._applyAutomation(currentTime)
+    this._audioTickId = setTimeout(tick, 0)
+  }
 
-    requestAnimationFrame(() => this.scheduleLoop())
+  // ── UI update loop (rAF) — only touches DOM, never schedules audio ────────
+  _startUiTick() {
+    const uiTick = () => {
+      if (!this.isPlaying) return
+      const currentTime = engine.ctx.currentTime - this.startTime
+      this.updatePlayhead(currentTime)
+      this.updateLCD(currentTime)
+      this._applyAutomation(currentTime)
+      this._uiFrameId = requestAnimationFrame(uiTick)
+    }
+    this._uiFrameId = requestAnimationFrame(uiTick)
+  }
+
+  scheduleLoop() {
+    if (!this.isPlaying) return
+    this._startAudioTick()
+    this._startUiTick()
   }
 
   _scheduleMetronome(currentTime, lookahead) {
