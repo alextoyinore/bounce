@@ -2,6 +2,9 @@ const fs = require('fs')
 const path = require('path')
 
 function writeWav(filename, buffer, sampleRate) {
+  if (fs.existsSync(filename)) {
+    return
+  }
   const length = buffer.length * 2
   const wav = Buffer.alloc(44 + length)
   wav.write('RIFF', 0)

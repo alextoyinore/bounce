@@ -3744,6 +3744,69 @@ function init() {
       })
     }
 
+    // Lightweight in-place step row updater — only toggles .active, no DOM rebuild
+    function updateStepRowsUI() {
+      document.querySelectorAll('.seq-steps').forEach((container) => {
+        const note = container.dataset.note || null
+        const trackId = container.dataset.instrument || 'drums'
+        const trackNotes = sequencer.patterns[trackId] || []
+        container.querySelectorAll('.seq-step').forEach((step) => {
+          const i = parseInt(step.dataset.stepIndex)
+          const isActive = trackNotes.some((n) => n.note === note && n.step === i)
+          step.classList.toggle('active', isActive)
+        })
+      })
+    }
+
+    // Lightweight in-place piano roll note updater — diffs existing notes, no full clear
+    function updatePianoRollNotesUI() {
+      const grid = document.getElementById('piano-grid')
+      if (!grid) return
+      const trackId = document.getElementById('pr-track-select')?.value
+      if (!trackId) return
+
+      const targetNotes = sequencer.patterns[trackId] || []
+      const map = trackUIMap[trackId]
+      const color =
+        map && map.headers[0]
+          ? map.headers[0].laneEl.style.getPropertyValue('--track-color')
+          : null
+
+      // Remove DOM notes that are no longer in the pattern
+      grid.querySelectorAll('.pr-note').forEach((noteEl) => {
+        const noteName = noteEl.dataset.note
+        const step = parseInt(noteEl.dataset.step)
+        const dur = parseFloat(noteEl.dataset.duration)
+        const match = targetNotes.find(
+          (n) => n.note === noteName && n.step === step && n.durationSteps === dur
+        )
+        if (!match) noteEl.remove()
+      })
+
+      // Add notes that exist in the pattern but not yet in the DOM
+      targetNotes.forEach((noteObj) => {
+        const row = grid.querySelector(`[data-note="${noteObj.note}"]`)
+        if (!row) return
+        const existing = row.querySelector(
+          `.pr-note[data-step="${noteObj.step}"][data-duration="${noteObj.durationSteps}"]`
+        )
+        if (!existing) {
+          const noteEl = createPrNote(
+            trackId,
+            noteObj.note,
+            noteObj.step,
+            noteObj.durationSteps,
+            color,
+            noteObj.velocity,
+            noteObj.pan,
+            noteObj.pitch,
+            noteObj.probability
+          )
+          row.appendChild(noteEl)
+        }
+      })
+    }
+
     function syncPatternClip(trackId) {
       if (!trackId) return
       const lane = document.querySelector(`.track-lane[data-track-id="${trackId}"]`)
@@ -6187,9 +6250,9 @@ function init() {
         }
       }
 
-      const stepCountSelect = document.getElementById('step-count-select')
-      if (stepCountSelect) stepCountSelect.dispatchEvent(new Event('change'))
-      if (prSelect) prSelect.dispatchEvent(new Event('change'))
+      // Update step sequencer and piano roll in-place without full DOM rebuilds
+      updateStepRowsUI()
+      updatePianoRollNotesUI()
     }
 
     // ── Footer collapse ───────────────────────────────────────────
