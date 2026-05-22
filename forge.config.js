@@ -47,7 +47,8 @@ module.exports = {
       config: {
         options: {
           maintainer: 'Alexander Ore',
-          categories: ['Audio', 'Music']
+          categories: ['Audio', 'Music'],
+          icon: './resources/icon.png'
         }
       }
     },

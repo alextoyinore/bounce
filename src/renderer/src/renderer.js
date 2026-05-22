@@ -313,6 +313,25 @@ function init() {
       window.electron.ipcRenderer.send('window-close')
     })
 
+    document.getElementById('menu-toggle-browser')?.addEventListener('click', () => {
+      document.getElementById('app').classList.toggle('browser-hidden')
+    })
+    document.getElementById('menu-toggle-mixer')?.addEventListener('click', () => {
+      document.querySelector('.toggle-view[data-target="mixer-view"]')?.click()
+    })
+    document.getElementById('menu-toggle-pianoroll')?.addEventListener('click', () => {
+      document.querySelector('.toggle-view[data-target="piano-roll-view"]')?.click()
+    })
+    document.getElementById('menu-toggle-stepseq')?.addEventListener('click', () => {
+      document.querySelector('.toggle-view[data-target="step-sequencer-view"]')?.click()
+    })
+    document.getElementById('menu-toggle-plugins')?.addEventListener('click', () => {
+      document.querySelector('.toggle-view[data-target="plugins-view"]')?.click()
+    })
+    document.getElementById('menu-toggle-bottom')?.addEventListener('click', () => {
+      document.getElementById('footer-collapse-btn')?.click()
+    })
+
     // Moved up for priority
     document.getElementById('menu-install-pack')?.addEventListener('click', async (e) => {
       console.log('[Renderer] Install Sound Pack clicked', e)
@@ -757,6 +776,48 @@ function init() {
         if (e.key === 'ArrowDown') laneDelta = 1
 
         moveSelectedClips(timeDelta, laneDelta)
+        return
+      }
+
+      // Toggle Browser (Ctrl + B)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyB') {
+        e.preventDefault()
+        document.getElementById('menu-toggle-browser')?.click()
+        return
+      }
+
+      // Toggle Mixer (Alt + M)
+      if (e.altKey && e.code === 'KeyM') {
+        e.preventDefault()
+        document.getElementById('menu-toggle-mixer')?.click()
+        return
+      }
+
+      // Toggle Piano Roll (Alt + P)
+      if (e.altKey && e.code === 'KeyP') {
+        e.preventDefault()
+        document.getElementById('menu-toggle-pianoroll')?.click()
+        return
+      }
+
+      // Toggle Step Seq (Alt + S)
+      if (e.altKey && e.code === 'KeyS') {
+        e.preventDefault()
+        document.getElementById('menu-toggle-stepseq')?.click()
+        return
+      }
+
+      // Toggle Plugins (Alt + A)
+      if (e.altKey && e.code === 'KeyA') {
+        e.preventDefault()
+        document.getElementById('menu-toggle-plugins')?.click()
+        return
+      }
+
+      // Collapse Bottom Panel (Alt + X)
+      if (e.altKey && e.code === 'KeyX') {
+        e.preventDefault()
+        document.getElementById('menu-toggle-bottom')?.click()
         return
       }
 

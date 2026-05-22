@@ -49,6 +49,14 @@ body {
   width: 100vw;
 }
 
+#app.browser-hidden {
+  grid-template-columns: 0px 1fr;
+}
+
+#app.browser-hidden aside {
+  display: none !important;
+}
+
 /* ======== HEADER & TRANSPORT ======== */
 header {
   grid-column: 1 / -1;
@@ -169,6 +177,10 @@ header {
   color: var(--text-primary);
   cursor: pointer;
   transition: var(--transition);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
 }
 
 .dropdown-item:hover {
